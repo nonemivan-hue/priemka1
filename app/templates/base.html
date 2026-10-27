@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Приемка товаров — ГКУ КК УСЗН{% endblock %}</title>
+<style>
+:root{--blue:#1a4e8a;--light:#eef3f9;}
+*{box-sizing:border-box}
+body{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:#f4f6f9;color:#222}
+header{background:var(--blue);color:#fff;padding:10px 24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+header .logo{font-weight:700;font-size:17px}
+nav a{color:#dbe7f5;text-decoration:none;margin-right:16px;font-size:14px;padding:4px 8px;border-radius:4px}
+nav a:hover,nav a.active{background:#ffffff22;color:#fff}
+main{padding:24px;max-width:1400px;margin:0 auto}
+h1{font-size:22px;color:var(--blue)} h2{font-size:18px;color:var(--blue)}
+.card{background:#fff;border-radius:8px;box-shadow:0 1px 4px #0001;padding:18px;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+label{display:block;font-size:12px;color:#555;margin:8px 0 3px}
+input,select,textarea{width:100%;padding:7px 9px;border:1px solid #c8d2de;border-radius:5px;font-size:14px;background:#fff}
+input:focus,select:focus{outline:2px solid #7faed6;border-color:var(--blue)}
+button,.btn{background:var(--blue);color:#fff;border:0;border-radius:5px;padding:8px 18px;font-size:14px;cursor:pointer;text-decoration:none;display:inline-block}
+button:hover,.btn:hover{background:#133d6e}
+.btn-green{background:#1d7a3c}.btn-green:hover{background:#155c2c}
+.btn-red{background:#a32020;padding:4px 10px;font-size:12px}.btn-red:hover{background:#7d1818}
+.btn-gray{background:#6b7684}.btn-gray:hover{background:#525b67}
+table{border-collapse:collapse;width:100%;font-size:13px;background:#fff}
+th,td{border:1px solid #ccd5df;padding:6px 8px;text-align:left;vertical-align:top}
+th{background:var(--light);font-weight:600}
+tr:nth-child(even) td{background:#fafbfd}
+.yellow{background:#fff59a !important}
+.toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.muted{color:#777;font-size:12px}
+fieldset{border:1px solid #d5dde6;border-radius:6px;margin:10px 0;padding:6px 14px 12px}
+legend{font-size:13px;font-weight:600;color:var(--blue);padding:0 6px}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
+.cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 14px}
+.cols10{display:grid;grid-template-columns:repeat(10,1fr);gap:0 8px}
+.flash{padding:10px 14px;border-radius:6px;background:#e6f4e6;border:1px solid #9ccea0;margin-bottom:14px}
+#msg{position:fixed;bottom:18px;right:18px;background:#233;padding:#10px 16px;color:#cfc;border-radius:6px;display:none;z-index:99}
+@media print{header,nav,.toolbar,button{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">📦 Приемка товаров — ГКУ КК&nbsp;УСЗН</div>
+  <nav>
+    <a href="/">Главная</a>
+    <a href="/constants">Константы</a>
+    <a href="/catalog/postavshiki">Справочники</a>
+    <a href="/dokument/prikaz">Приказы комиссии</a>
+    <a href="/dokument/priemka">Приемки</a>
+    <a href="/otchet/obem">Отчёты</a>
+    <a href="/backup">💾 Резервные копии</a>
+  </nav>
+  <div style="margin-left:auto;font-size:12px;color:#bcd3ea">версия {{ app_version }}</div>
+</header>
+<main>
+<a class="btn btn-gray" id="backBtn" style="display:none;margin-bottom:12px" href="#">← Назад</a>
+{% block content %}{% endblock %}
+</main>
+<footer style="text-align:center;color:#8a97a8;font-size:12px;padding:14px">
+  {{ app_name }} · версия {{ app_version }} · <a href="/about" style="color:#8a97a8">о программе / история версий</a>
+</footer>
+<div id="msg"></div>
+<script>
+function showMsg(t){const m=document.getElementById('msg');m.textContent=t;m.style.display='block';setTimeout(()=>m.style.display='none',4000);}
+async function postJSON(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});return r.json();}
+// Поля с data-date — календарь (type="date"). Значения хранятся в формате
+// дд.мм.гггг, поэтому при загрузке конвертируем их в ISO (yyyy-mm-dd),
+// а обратно — сервер при сохранении (_norm_date).
+(function(){
+  function toISO(s){var m=/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})$/.exec((s||'').trim());
+    if(!m)return '';var y=m[3].length===2?'20'+m[3]:m[3];
+    return y+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);}
+  document.querySelectorAll('input[data-date]').forEach(function(inp){
+    var v=inp.value.trim();
+    if(v){var iso=toISO(v); inp.value=/^\d{4}-\d{2}-\d{2}$/.test(iso)?iso:'';}
+  });
+})();
+// Кнопка возврата: ссылка из cookie _back (ставит сервер при переходах)
+// или история браузера. Работает и в pywebview, где нет кнопки «назад».
+(function(){
+  var b=document.getElementById('backBtn');
+  try{
+    var v=(document.cookie.match(/(?:^|; )_back=([^;]+)/)||[])[1];
+    if(v)v=decodeURIComponent(v);
+    if(!v&&window.performance){
+      var e=performance.getEntriesByType('navigation')[0];
+      if(e&&document.referrer&&document.referrer.indexOf(location.origin)===0){
+        try{v=new URL(document.referrer).pathname;}catch(x){}
+      }
+    }
+    if(v&&v!==location.pathname){b.href=v;b.style.display='inline-block';}
+    else if(history.length>1){b.href='#';b.style.display='inline-block';
+      b.onclick=function(ev){ev.preventDefault();history.back();};}
+  }catch(e){}
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Резервное копирование — Приемка товаров{% endblock %}
+{% block content %}
+<h1>💾 Резервное копирование и восстановление данных</h1>
+<div class="muted" style="margin-bottom:14px">Версия программы: <b>{{ version }}</b> &nbsp;|&nbsp;
+Хранилище копий: <code>{{ backup_dir }}</code></div>
+
+<div class="card">
+  <h2>Создание резервной копии</h2>
+  <p class="muted">Копия содержит все константы, справочники и документы. При первом запуске программы за день
+  копия создаётся автоматически. Перед каждым восстановлением автоматически делается страховочная копия текущего состояния.</p>
+  <form method="post" action="/backup/create" id="bkForm" onsubmit="return createBackup(event)">
+    <label>Комментарий к копии (необязательно)</label>
+    <input type="text" name="comment" id="bkComment" placeholder="например: перед закрытием месяца" maxlength="80">
+    <div class="toolbar" style="margin-top:12px">
+      <button type="submit" class="btn-green">💾 Создать копию</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Восстановление из файла на диске</h2>
+  <p class="muted">Выберите ранее сохранённый файл копии (.json), например со флеш-накопителя или сетевого диска.</p>
+  <input type="file" id="upFile" accept=".json,application/json">
+  <div class="toolbar" style="margin-top:12px">
+    <button onclick="uploadRestore()">📂 Восстановить из файла</button>
+    <span class="muted">Внимание: текущие данные будут заменены данными из файла.</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Список резервных копий</h2>
+  {% if backups %}
+  <table>
+    <tr><th>Дата создания</th><th>Файл</th><th>Комментарий</th><th>Версия программы</th>
+        <th>Состав базы</th><th>Размер</th><th>Действия</th></tr>
+    {% for b in backups %}
+    <tr>
+      <td>{{ b.created or b.date }}</td>
+      <td style="font-size:12px">{{ b.file }}{% if b.error %}<br><span style="color:#a32020">повреждён: {{ b.error }}</span>{% endif %}</td>
+      <td>{{ b.comment or '—' }}</td>
+      <td>{{ b.program_version or '—' }}</td>
+      <td style="font-size:12px">
+        {% set s = b.stats %}
+        {% if s %}приёмки: {{ s.get('приёмки', 0) }}, приказы: {{ s.get('приказы комиссии', 0) }},
+        номенклатура: {{ s.get('номенклатура', 0) }}, поставщики: {{ s.get('поставщики', 0) }},
+        сотрудники: {{ s.get('сотрудники', 0) }}{% else %}—{% endif %}
+      </td>
+      <td>{{ '%.1f КБ'|format(b.size / 1024) }}</td>
+      <td style="white-space:nowrap">
+        <a class="btn btn-gray" style="padding:4px 10px;font-size:12px" href="/backup/download/{{ b.file }}">⬇ Скачать</a>
+        <button class="btn-green" style="padding:4px 10px;font-size:12px"
+                onclick="restoreCopy('{{ b.file }}')">♻️ Восстановить</button>
+        <button class="btn-red" onclick="delCopy('{{ b.file }}')">Удалить</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Копий пока нет. Создайте первую копию кнопкой выше.</p>
+  {% endif %}
+
+  <h2 style="margin-top:18px">Текущая база данных</h2>
+  <table style="max-width:640px">
+    <tr><th>Раздел</th><th>Записей</th></tr>
+    {% for k, v in cur_stats.items() %}
+    <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function createBackup(ev){
+  ev.preventDefault();
+  const r = await fetch('/backup/create', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({comment: document.getElementById('bkComment').value})});
+  const j = await r.json();
+  if(j.ok){
+    showMsg('Копия создана');
+    if(j.download){                       // веб-режим: предложим скачать файл копии
+      const a = document.createElement('a');
+      a.href = j.download; a.download = ''; a.click();
+    }
+    setTimeout(()=>location.reload(), 900);
+  } else showMsg('Ошибка: ' + (j.error||''));
+  return false;
+}
+async function restoreCopy(name){
+  if(!confirm('Восстановить базу из копии\n' + name +
+    '\n\nТекущие данные будут заменены (перед восстановлением будет создана страховочная копия). Продолжить?')) return;
+  const r = await fetch('/backup/restore', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({file:name})});
+  const j = await r.json();
+  if(j.ok){ showMsg('Данные восстановлены из копии' + (j.version?(' (версия '+j.version+')'):''));
+            setTimeout(()=>location.href='/', 1000); }
+  else showMsg('Ошибка: ' + (j.error||''));
+}
+async function uploadRestore(){
+  const f = document.getElementById('upFile').files[0];
+  if(!f){ showMsg('Выберите файл копии .json'); return; }
+  if(!confirm('Восстановить базу из файла ' + f.name + '? Текущие данные будут заменены.')) return;
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/backup/upload', {method:'POST', body: fd});
+  const j = await r.json();
+  if(j.ok){ showMsg('Данные восстановлены из файла'); setTimeout(()=>location.href='/', 1000); }
+  else showMsg('Ошибка: ' + (j.error||''));
+}
+async function delCopy(name){
+  if(!confirm('Удалить файл копии ' + name + '?')) return;
+  const r = await fetch('/backup/delete', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({file:name})});
+  const j = await r.json();
+  if(j.ok){ showMsg('Копия удалена'); setTimeout(()=>location.reload(), 700); }
+  else showMsg('Ошибка: ' + (j.error||''));
+}
+</script>
+{% endblock %}

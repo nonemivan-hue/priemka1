@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Константа «Учреждение»</h1>
+<form method="post" action="/constants/save" class="card">
+  <fieldset><legend>Общие реквизиты</legend>
+    <label>Учреждение (получатель)</label>
+    <input name="учреждение_получатель" value="{{ uch.get('учреждение_получатель','') }}">
+    <div class="cols3">
+      <div><label>Обособленное подразделение</label>
+        <input name="обособленное_подразделение" value="{{ uch.get('обособленное_подразделение','') }}"></div>
+      <div><label>Структурное подразделение</label>
+        <input name="структурное_подразделение" value="{{ uch.get('структурное_подразделение','') }}"></div>
+      <div><label>Валюта (наименование)</label>
+        <input name="валюта" value="{{ uch.get('валюта','Рубль') }}"></div>
+    </div>
+    <label>Главный администратор доходов бюджета (Учредитель)</label>
+    <input name="главный_администратор_доходов" value="{{ uch.get('главный_администратор_доходов','') }}">
+    <div class="cols3">
+      <div><label>Наименование бюджета</label>
+        <input name="наименование_бюджета" value="{{ uch.get('наименование_бюджета','') }}"></div>
+      <div><label>ИНН</label><input name="inn" value="{{ uch.get('inn','') }}"></div>
+      <div><label>КПП</label><input name="kpp" value="{{ uch.get('kpp','') }}"></div>
+    </div>
+    <div class="cols2">
+      <div><label>ОГРН</label><input name="ogrn" value="{{ uch.get('ogrn','') }}"></div>
+      <div><label>Руководитель (из справочника «Сотрудники»)</label>
+        <input list="sotrudniki-list" name="rukovoditel" value="{{ uch.get('rukovoditel','') }}"
+               placeholder="ФИО руководителя"></div>
+    </div>
+    <label>Адрес грузополучателя</label>
+    <textarea name="адрес_грузополучателя" rows="2">{{ uch.get('адрес_грузополучателя','') }}</textarea>
+  </fieldset>
+
+  {% set fias_labels = {
+     'indeks':'ИНДЕКС','strana':'Страна','kray_oblast':'Край/область','rayon':'Район',
+     'gorod':'Город','naselenny_punkt':'Населенный пункт','ulica':'ул.','dom':'д.',
+     'korpus':'Корпус/литера','kvartira':'Кв./офис'} %}
+  {% for addr_key, addr_title in [('adres_zakazchika','Адрес заказчика (по ФИАС)'),
+                                   ('mesto_postavki','Место поставки товара, выполнения работы, оказания услуги (по ФИАС)')] %}
+  <fieldset><legend>{{ addr_title }}</legend>
+    <div class="cols10">
+      {% for f in fias_keys %}
+      <div><label>{{ fias_labels[f] }}</label>
+        <input class="fias-search" data-target="{{addr_key}}__{{f}}"
+               name="{{addr_key}}__{{f}}" value="{{ (uch.get(addr_key) or {}).get(f,'') }}"></div>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+
+  <datalist id="sotrudniki-list">
+    {% for s in sotrudniki %}<option value="{{ s.fio }}">{{ s.dolzhnost }}</option>{% endfor %}
+  </datalist>
+
+  <button type="submit">💾 Сохранить константы</button>
+  <a class="btn btn-gray" href="/">Отмена</a>
+</form>
+<p class="muted">Подсказка: поля адреса с подсказками заполняются из справочника «Адресный классификатор (ФИАС)» —
+загрузите его из интернета на главной странице или импортируйте файл.</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Подсказки ФИАС при вводе в поля адреса
+document.querySelectorAll('.fias-search').forEach(inp=>{
+  inp.addEventListener('focus',async()=>{
+    if(window.__fias)return;
+    try{const r=await fetch('/api/catalogs');window.__fias=(await r.json()).fias||[];}catch(e){window.__fias=[];}
+    const dl=document.createElement('datalist');dl.id='fias-dl';
+    window.__fias.forEach(a=>{
+      ['kray_oblast','rayon','gorod','naselenny_punkt','ulica','dom'].forEach(k=>{
+        if(a[k])dl.innerHTML+='<option value="'+a[k]+'">';});
+    });
+    document.body.appendChild(dl);
+  });
+  inp.setAttribute('list','fias-dl');
+});
+</script>
+{% endblock %}

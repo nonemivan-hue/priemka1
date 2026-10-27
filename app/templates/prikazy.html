@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Приказы приёмочной комиссии</h1>
+<div class="toolbar">
+  <a class="btn btn-green" href="/dokument/prikaz/new">➕ Новый приказ</a>
+  <a class="btn btn-gray" href="/">← На главную</a>
+</div>
+<div class="card" style="overflow-x:auto">
+<table>
+<tr><th>№</th><th>Дата</th><th>Наименование комиссии</th><th>Председатель</th><th>Члены комиссии</th><th></th></tr>
+{% for p in items %}
+<tr>
+  <td><a href="/dokument/prikaz/{{p.id}}">{{p.nomer}}</a></td>
+  <td>{{p.data}}</td>
+  <td>{{p.nanimovanie}}</td>
+  <td>{{p.predsedatel}}</td>
+  <td>{{p.chleny|join('; ')}}</td>
+  <td nowrap>
+    <a class="btn" style="padding:3px 10px;font-size:12px" href="/dokument/prikaz/{{p.id}}">✏ Изменить</a>
+    <button class="btn" style="padding:3px 10px;font-size:12px" onclick="xcl('/dokument/prikaz/{{p.id}}/excel',this,'Prikaz_{{p.id}}.xlsx')">📤 В Excel</button>
+    <button class="btn-red" onclick="delP({{p.id}})">❌</button>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="muted">Приказов пока нет. Создайте первый приказ комиссии.</td></tr>
+{% endfor %}
+</table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function delP(id){
+  if(!confirm('Удалить приказ?'))return;
+  await postJSON('/dokument/prikaz/delete',{id:id});
+  location.reload();
+}
+// Выгрузка приказа в Excel: веб — скачивание, настольный режим — файл+открытие
+async function xcl(url,btn,fname){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Выгрузка…';
+  try{
+    const r=await fetch(url);
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Файл сохранен:\n'+j.file):('Ошибка выгрузки: '+(j.error||'')));
+    } else if(r.ok){
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка выгрузки в Excel: '+e);}
+  btn.disabled=false; btn.textContent=t0;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{% if item %}Приемка № {{item.get('номер','б/н')}} от {{item.get('дата','')}}{% else %}Новая приёмка (ф. 0510452){% endif %}</h1>
+<p class="muted">Печатная форма: «Приложение к распоряжению ректора № 3 от 22.01.2024г.», А4, альбомная.
+Поля, выделенные <span style="background:#fff59a;padding:1px 6px">жёлтым</span>, заполняются пользователем;
+остальные подставляются из констант и справочников.</p>
+
+<div class="card">
+  <fieldset><legend>Шапка документа</legend>
+    <div class="cols3">
+      <div><label>№ акта приемки</label><input id="f_nomer" value="{{item.get('номер','б/н') if item else 'б/н'}}"></div>
+      <div><label>Дата акта</label><input id="f_data" type="date" value="{{item.get('дата','') if item else ''}}" data-date></div>
+      <div><label>Идентификатор госконтракта (ИКЗ)</label><input id="f_ikz" value="{{item.get('ikz','') if item else ''}}"></div>
+    </div>
+    <div class="cols3">
+      <div><label>Документ-основание комиссии (вид)</label>
+        <select id="f_dok_osn_vid">{% for v in db.catalogs.vidy_dokumentov %}
+          <option {% if item and item.get('dok_osnovanie_vid')==v['наименование'] %}selected{% endif %}>{{v['наименование']}}</option>
+        {% endfor %}</select></div>
+      <div><label>№ приказа комиссии</label>
+        <select id="f_prikaz_id"><option value="">— выберите приказ —</option>
+          {% for p in db.documents.pri_kazy_comissii %}
+          <option value="{{p.id}}" {% if item and item.get('prikaz_id')==p.id %}selected{% endif %}>№{{p.nomer}} от {{p.data}} — {{p.nanimovanie}}</option>
+          {% endfor %}</select></div>
+      <div><label>Дата приказа</label><input id="f_dok_osn_data" type="date" value="{{item.get('dok_osnovanie_data','') if item else ''}}" data-date></div>
+    </div>
+    <div class="cols3">
+      <div><label>Основание приемки (вид)</label>
+        <select id="f_osnovanie_vid">{% for v in db.catalogs.vidy_dokumentov %}
+          <option {% if item and item.get('osnovanie_vid')==v['наименование'] %}selected{% endif %}>{{v['наименование']}}</option>
+        {% endfor %}</select></div>
+      <div><label>№ основания (контракт/договор)</label><input id="f_osnovanie_nom" value="{{item.get('osnovanie_nom','') if item else ''}}"></div>
+      <div><label>Дата основания</label><input id="f_osnovanie_data" type="date" value="{{item.get('osnovanie_data','') if item else ''}}" data-date></div>
+    </div>
+    <div class="cols2">
+      <div><label>Документ об отгрузке (из справочника «Виды документов»)</label>
+        <select id="f_dok_otgruzka">{% for v in db.catalogs.vidy_dokumentov %}
+          <option {% if item and item.get('dok_otgruzka')==v['наименование'] %}selected{% endif %}>{{v['наименование']}}</option>
+        {% endfor %}</select></div>
+      <div><label>Имя файла PDF приложения</label>
+        <input id="f_fail_pdf" value="{{item.get('fail_pdf','') if item else ''}}"></div>
+    </div>
+  </fieldset>
+
+  <fieldset><legend>Поставщик (подрядчик) — из справочника</legend>
+    <select id="f_postavshik" onchange="fillPostavshik()">
+      <option value="">— выберите поставщика —</option>
+      {% for s in db.catalogs.postavshiki %}
+      <option value="{{s.id}}" {% if item and (item.get('postavshik') or {}).get('id')==s.id %}selected{% endif %}>
+        {{s.polnoe_naimovanie}} (ИНН {{s.inn}})</option>
+      {% endfor %}
+    </select>
+    <div id="postavshikInfo" class="muted" style="margin-top:6px"></div>
+  </fieldset>
+
+  <fieldset><legend>Адреса (из констант, можно скорректировать)</legend>
+    <div class="cols2">
+      <div><label>Адрес заказчика</label><input id="f_adres_zak" value="{{item.get('adres_zakazchika', uch.get('adres_zakazchika_str','')) if item else uch.get('adres_zakazchika_str','')}}"></div>
+      <div><label>Место поставки товара / выполнения работ / оказания услуг</label>
+        <input id="f_mesto_post" value="{{item.get('mesto_postavki', uch.get('mesto_postavki_str','')) if item else uch.get('mesto_postavki_str','')}}"></div>
+    </div>
+  </fieldset>
+
+  <fieldset><legend>Раздел 4. Сведения о приемке товаров, работ, услуг — позиции (выбор из справочника «Номенклатура»)</legend>
+    <p class="muted">При выборе номенклатуры автоматически заполняются: код товара, наименование, страна происхождения,
+      ед. измерения, ставка НДС. Сотрудник вносит только <b>количество</b> и <b>цену</b>.</p>
+    <table id="pozTbl">
+      <tr><th>№</th><th>Номенклатура<br>(выбор из справочника)</th><th>Код товара</th><th>Наименование</th>
+          <th>Страна<br>(код/наим.)</th><th>Ед. изм.<br>(ОКЕИ)</th><th>Кол-во ✏️</th><th>Цена ✏️</th>
+          <th>Сумма без НДС</th><th>Ставка НДС</th><th>Сумма НДС</th><th>Сумма с НДС</th><th></th></tr>
+    </table>
+    <button type="button" onclick="addPoz()" style="margin-top:8px">➕ Добавить позицию</button>
+    <div style="text-align:right;margin-top:8px;font-weight:600">Итого с НДС: <span id="itogLbl">0.00</span></div>
+  </fieldset>
+
+  <fieldset><legend>Комиссия и ответственный исполнитель</legend>
+    <div class="cols2">
+      <div><label>Ответственный исполнитель (ФИО, из сотрудников)</label>
+        <select id="f_resp" onchange="fillResp()">
+          <option value="">— выберите —</option>
+          {% for s in db.catalogs.sotrudniki %}<option value="{{s.fio}}">{{s.fio}} ({{s.dolzhnost}})</option>{% endfor %}
+        </select></div>
+      <div class="cols2">
+        <div><label>Телефон</label><input id="f_resp_tel" value="{{(item.get('otvetstvenny') or {}).get('telefon','') if item else ''}}"></div>
+        <div><label>E-mail</label><input id="f_resp_email" value="{{(item.get('otvetstvenny') or {}).get('email','') if item else ''}}"></div>
+      </div>
+    </div>
+    <p class="muted">Председатель и члены комиссии подставляются из выбранного приказа; состав можно посмотреть в приказе.</p>
+  </fieldset>
+
+  <button onclick="saveDoc()">💾 Сохранить приёмку</button>
+  {% if item %}<button type="button" onclick="xcl('/dokument/priemka/{{item.id}}/excel',this,'Приемка_{{item.id}}.xlsx')">📤 В Excel</button>{% endif %}
+  <button type="button" onclick="goBack()">← Назад</button>
+  <a class="btn btn-gray" href="/dokument/priemka">К списку приёмок</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Возврат на предыдущую страницу (cookie _back ставит сервер) — важно для
+// настольного режима без браузера, где нет аппаратной кнопки «назад».
+function goBack(){
+  var v=(document.cookie.match(/(?:^|; )_back=([^;]+)/)||[])[1];
+  if(v){location.href=decodeURIComponent(v);}
+  else if(history.length>1){history.back();}
+  else{location.href='/';}
+}
+async function xcl(url,btn,fname){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Выгрузка…';
+  try{
+    const r=await fetch(url);
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Файл сохранен:\n'+j.file):('Ошибка выгрузки: '+(j.error||'')));
+    } else if(r.ok){
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка выгрузки в Excel: '+e);}
+  btn.disabled=false; btn.textContent=t0;
+}
+</script>
+<script>
+const NOM = {{ db.catalogs.nomenklatura|tojson }};
+const POSTAVSHIKI = {{ db.catalogs.postavshiki|tojson }};
+const NDS = {{ db.catalogs.stavki_nds|tojson }};
+const PRIKAZY = {{ db.documents.pri_kazy_comissii|tojson }};
+const SOTR = {{ db.catalogs.sotrudniki|tojson }};
+const ITEM = {{ (item|tojson) if item else 'null' }};
+
+// экранирование для вставки в HTML-атрибуты
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+  .replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function ndsCoef(s){
+  s=String(s||'');
+  if(!s || /без/i.test(s)) return 0;
+  const m=s.match(/(\d+[.,]?\d*)/); return m?parseFloat(m[1].replace(',','.'))/100:0;
+}
+
+function fillPostavshik(){
+  const id=document.getElementById('f_postavshik').value;
+  const p=POSTAVSHIKI.find(x=>String(x.id)===id);
+  document.getElementById('postavshikInfo').textContent =
+    p ? (p.kratkoe_naimovanie+' | '+p.adres+' | ОГРН '+p.ogrn+' | ИНН '+p.inn+(p.kpp?' | КПП '+p.kpp:'')+' | '+p.dogovor):'';
+  if(p && !document.getElementById('f_osnovanie_nom').value){
+    document.getElementById('f_osnovanie_nom').value=p.dogovor||'';
+    document.getElementById('f_osnovanie_data').value=(/^\d{4}-\d{2}-\d{2}$/.test(p.data_zakl||'')?p.data_zakl:(function(){var m=/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec(p.data_zakl||'');return m?m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2):'';})());
+    document.getElementById('f_ikz').value=p.ikz||'';
+  }
+}
+
+// автоподстановка приказа
+document.getElementById('f_prikaz_id').addEventListener('change',function(){
+  const p=PRIKAZY.find(x=>String(x.id)===this.value);
+  if(p){var di=document.getElementById('f_dok_osn_data');
+        // конвертация дд.мм.гггг -> yyyy-mm-dd для type="date"
+        var m=/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec(p.data||'');
+        if(di)di.value=m?(m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2)):'';}
+});
+
+let POZ = (ITEM && ITEM.pozicii) ? ITEM.pozicii.map(p=>({...p})) : [];
+
+// выбор номенклатуры — ключ "код товара | наименование" (коды могут повторяться)
+function nomKey(n){return n.kod_tovara+' | '+n.naimovanie;}
+function findNom(key){return NOM.find(n=>nomKey(n)===key);}
+
+function renderPoz(){
+  const tbl=document.getElementById('pozTbl');
+  tbl.innerHTML='<tr><th>№</th><th>Номенклатура (выбор)</th><th>Код товара</th><th>Наименование</th><th>Страна</th>'+
+    '<th>Ед.изм.</th><th>Кол-во</th><th>Цена</th><th>Без НДС</th><th>Ставка НДС</th><th>НДС</th><th>С НДС</th><th></th></tr>';
+  let itog=0;
+  const nomOpts='<option value="">— выберите номенклатуру —</option>'+
+    NOM.map(n=>'<option value="'+esc(nomKey(n))+'">'+esc(n.kod_tovara)+' — '+esc(n.naimovanie)+'</option>').join('');
+  POZ.forEach((p,i)=>{
+    const bez=Math.round(((+p.kolichestvo||0)*(+p.cena||0))*100)/100;
+    const nds=Math.round(bez*ndsCoef(p.stavka_nds)*100)/100;
+    const snds=Math.round((bez+nds)*100)/100; itog+=snds;
+    // если позиция не выбрана из справочника — добавляем её текущее значение отдельным пунктом
+    let selKey=(p.kod_tovara||p.naimovanie)?(p.kod_tovara+' | '+(p.naimovanie||'')):'';
+    let opts=nomOpts;
+    if(selKey && !findNom(selKey)){
+      opts+='<option value="'+esc(selKey)+'" data-custom="1">'+esc(selKey)+'</option>';
+    }
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+(i+1)+'</td>'+
+      '<td><select onchange="pickNom('+i+',this.value)">'+opts+'</select></td>'+
+      '<td style="background:#eef2ff;font-weight:600">'+esc(p.kod_tovara||'')+'</td>'+
+      '<td style="background:#eef2ff">'+esc(p.naimovanie||'')+'</td>'+
+      '<td style="background:#eef2ff">'+esc(p.strana_kod||'')+' '+esc(p.strana_name||'')+'</td>'+
+      '<td style="background:#eef2ff">'+esc(p.ed_izm||'')+' <span class="muted">('+esc(p.oei_kod||'')+')</span></td>'+
+      '<td><input type="number" step="0.001" style="background:#fff59a" value="'+esc(p.kolichestvo||'')+'"'+
+        ' onchange="setP('+i+',\'kolichestvo\',this.value)" placeholder="✏️"></td>'+
+      '<td><input type="number" step="0.01" style="background:#fff59a" value="'+esc(p.cena||'')+'"'+
+        ' onchange="setP('+i+',\'cena\',this.value)" placeholder="✏️"></td>'+
+      '<td>'+bez.toFixed(2)+'</td>'+
+      '<td style="background:#eef2ff">'+esc(p.stavka_nds||'')+'</td>'+
+      '<td>'+nds.toFixed(2)+'</td><td><b>'+snds.toFixed(2)+'</b></td>'+
+      '<td><button class="btn-red" onclick="delPoz('+i+')">❌</button></td>';
+    // выделяем выбранный пункт справочника
+    const sel=tr.querySelector('select');
+    if(selKey)sel.value=selKey;
+    tbl.appendChild(tr);
+  });
+  document.getElementById('itogLbl').textContent=itog.toFixed(2);
+}
+function pickNom(i,key){
+  const p=POZ[i];
+  if(!key){p.kod_tovara='';p.naimovanie='';renderPoz();return;}
+  const n=findNom(key)||{};
+  // данные справочника перезаписываются всегда; сотруднику доступны только кол-во и цена
+  Object.assign(p,{kod_tovara:n.kod_tovara||'',kratkoe_naimovanie:n.kratkoe_naimovanie||'',naimovanie:n.naimovanie||'',
+    strana_kod:n.strana_kod||'',strana_name:n.strana_name||'',
+    oei_kod:n.oei_kod||'',ed_izm:n.ed_izm||'',
+    stavka_nds:n.stavka_nds||'',stavka_nds_text:n.stavka_nds||'',
+    nom_deklaracii:n.nom_deklaracii||'',nom_certifikata:n.nom_certifikata||''});
+  renderPoz();
+}
+function setP(i,k,v){POZ[i][k]=v;renderPoz();}
+function delPoz(i){POZ.splice(i,1);renderPoz();}
+function addPoz(){POZ.push({kod_tovara:'',naimovanie:'',strana_kod:'',strana_name:'',oei_kod:'',ed_izm:'',
+  kolichestvo:'',cena:'',stavka_nds:'',stavka_nds_text:''});renderPoz();}
+
+function fillResp(){
+  const fio=document.getElementById('f_resp').value;
+  const s=SOTR.find(x=>x.fio===fio);
+  // должность подставится при печати из справочника
+}
+
+async function saveDoc(){
+  const prikazId=+document.getElementById('f_prikaz_id').value||null;
+  const prikaz=PRIKAZY.find(p=>p.id===prikazId)||{};
+  const respFio=document.getElementById('f_resp').value;
+  const respS=SOTR.find(x=>x.fio===respFio)||{};
+  const post=POSTAVSHIKI.find(x=>String(x.id)===document.getElementById('f_postavshik').value)||{};
+  let itog=0;
+  POZ.forEach(p=>{const bez=(+p.kolichestvo||0)*(+p.cena||0);const nds=bez*ndsCoef(p.stavka_nds);itog+=bez+nds;});
+  const payload={
+    id: ITEM?ITEM.id:undefined,
+    'номер':document.getElementById('f_nomer').value,
+    'дата':document.getElementById('f_data').value,
+    ikz:document.getElementById('f_ikz').value,
+    dok_osnovanie_vid:document.getElementById('f_dok_osn_vid').value,
+    dok_osnovanie_nom:prikaz.nomer||'',
+    dok_osnovanie_data:document.getElementById('f_dok_osn_data').value,
+    prikaz_id:prikazId,
+    osnovanie_vid:document.getElementById('f_osnovanie_vid').value,
+    osnovanie_nom:document.getElementById('f_osnovanie_nom').value,
+    osnovanie_data:document.getElementById('f_osnovanie_data').value,
+    dok_otgruzka:document.getElementById('f_dok_otgruzka').value,
+    fail_pdf:document.getElementById('f_fail_pdf').value,
+    adres_zakazchika:document.getElementById('f_adres_zak').value,
+    mesto_postavki:document.getElementById('f_mesto_post').value,
+    postavshik:post,
+    pozicii:POZ,
+    itog:Math.round(itog*100)/100,
+    komissiya_rows:(()=>{
+      const rows=[];
+      const head=SOTR.find(x=>x.fio===prikaz.predsedatel);
+      if(prikaz.predsedatel)rows.push({fio:prikaz.predsedatel,dolzhnost:head?head.dolzhnost:''});
+      (prikaz.chleny||[]).forEach(f=>{const s=SOTR.find(x=>x.fio===f);rows.push({fio:f,dolzhnost:s?s.dolzhnost:''});});
+      return rows;})(),
+    otvetstvenny:{fio:respFio,dolzhnost:respS.dolzhnost||'',
+      telefon:document.getElementById('f_resp_tel').value,
+      email:document.getElementById('f_resp_email').value},
+  };
+  const r=await fetch('/dokument/priemka/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const j=await r.json();
+  if(j.ok){showMsg('Приёмка сохранена');ITEM={...payload,id:j.id};setTimeout(()=>location.href='/dokument/priemka/'+j.id,700);}
+  else showMsg('Ошибка сохранения');
+}
+
+// первичная загрузка
+if(ITEM){
+  if(ITEM.postavshik&&ITEM.postavshik.id!=null)document.getElementById('f_postavshik').value=ITEM.postavshik.id;
+  if(ITEM.otvetstvenny){
+    document.getElementById('f_resp').value=ITEM.otvetstvenny.fio||'';
+  }
+}
+fillPostavshik();
+renderPoz();
+</script>
+{% endblock %}

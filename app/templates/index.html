@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Программа приёмки товаров — ГКУ КК УСЗН</h1>
+
+<div class="card">
+  <h2>Справочники</h2>
+  <div class="grid">
+    {% set cats = [
+      ('postavshiki','Поставщик', stats.postavshiki, false),
+      ('vidy_dokumentov','Виды документов', '—', false),
+      ('nomenklatura','Номенклатура', '—', false),
+      ('stavki_nds','Ставки НДС', '—', false),
+      ('strany_proiskhozhdeniya','Страна происхождения (загрузка из интернета)', stats.strany, true),
+      ('fias','Адресный классификатор ФИАС (загрузка из интернета)', stats.fias, true),
+      ('ed_izmereniya','Ед. измерения ОКЕИ (загрузка из интернета)', stats.ed_izm, true),
+      ('sotrudniki','Сотрудники', stats.sotrudniki, false)
+    ] %}
+    {% for key,title,cnt,isnet in cats %}
+    <div class="card" style="margin:0">
+      <b><a href="/catalog/{{key}}" style="color:var(--blue);text-decoration:none">{{title}}</a></b><br>
+      <span class="muted">Записей: {{cnt}}</span>
+      {% if isnet %}<br><button class="btn-gray" style="margin-top:8px;padding:4px 10px;font-size:12px"
+        onclick="loadNet('{{key}}',this)">🌐 Загрузить из интернета</button>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Документы</h2>
+  <div class="grid">
+    <div class="card" style="margin:0">
+      <b><a href="/dokument/prikaz" style="color:var(--blue)">1. Приказы комиссии</a></b><br>
+      <span class="muted">Создано: {{prikazy|length}}</span><br>
+      <a class="btn btn-green" style="margin-top:8px;padding:4px 12px;font-size:12px" href="/dokument/prikaz/new">+ Создать приказ</a>
+    </div>
+    <div class="card" style="margin:0">
+      <b><a href="/dokument/priemka" style="color:var(--blue)">2. Приемка (ф. 0510452)</a></b><br>
+      <span class="muted">Создано: {{priemki|length}}</span><br>
+      <a class="btn btn-green" style="margin-top:8px;padding:4px 12px;font-size:12px" href="/dokument/priemka/new">+ Создать приёмку</a>
+    </div>
+    <div class="card" style="margin:0">
+      <b><a href="/constants" style="color:var(--blue)">Константы</a></b><br>
+      <span class="muted">Учреждение (получатель), адреса ФИАС, руководитель…</span>
+    </div>
+    <div class="card" style="margin:0">
+      <b><a href="/otchet/obem" style="color:var(--blue)">📊 Отчёт по объёму принятых товаров</a></b><br>
+      <span class="muted">Объём и суммы по позициям, фильтры по периоду и поставщику, выгрузка в XLSX</span>
+      <a class="btn" style="margin-top:8px;padding:4px 12px;font-size:12px" href="/otchet/obem">Открыть отчёт</a>
+    </div>
+  </div>
+</div>
+
+{% if priemki %}
+<div class="card">
+  <h2>Последние приёмки</h2>
+  <table><tr><th>№</th><th>Дата</th><th>Поставщик</th><th>Основание</th><th>Сумма с НДС</th><th></th></tr>
+  {% for p in priemki[-5:]|reverse %}
+  <tr>
+    <td><a href="/dokument/priemka/{{p.id}}">{{p.get('номер','б/н')}}</a></td>
+    <td>{{p.get('дата','')}}</td>
+    <td>{{(p.get('postavshik') or {}).get('polnoe_naimovanie','')}}</td>
+    <td>{{p.get('osnovanie_vid','')}} №{{p.get('osnovanie_nom','')}} от {{p.get('osnovanie_data','')}}</td>
+    <td>{{ '%.2f'|format(p.get('itog',0) or 0) }}</td>
+    <td><a class="btn" style="padding:3px 10px;font-size:12px" href="/dokument/priemka/{{p.id}}/print">🖨 Печатная форма</a></td>
+  </tr>
+  {% endfor %}</table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadNet(name,btn){
+  btn.disabled=true;btn.textContent='Загрузка…';
+  try{
+    const r=await fetch('/catalog/'+name+'/load_net',{method:'POST'});
+    const j=await r.json();
+    showMsg(name+': '+j.msg);
+    setTimeout(()=>location.reload(),1200);
+  }catch(e){showMsg('Ошибка загрузки: '+e);btn.disabled=false;btn.textContent='🌐 Загрузить из интернета';}
+}
+</script>
+{% endblock %}

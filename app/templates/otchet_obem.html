@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Отчёт по объёму принятых товаров — ГКУ КК УСЗН{% endblock %}
+{% block content %}
+<h1>📊 Отчёт по объёму принятых товаров</h1>
+<p class="muted">Формируется на основании документов «Приемка». Позиции группируются по
+<b>краткому наименованию</b> номенклатуры (поле справочника «Номенклатура»; если оно не
+заполнено — по полному наименованию) и единице измерения; объём — суммарное количество,
+суммы — без НДС / НДС / с&nbsp;НДС.</p>
+
+<div class="card">
+  <form method="get" action="/otchet/obem" class="cols3" style="align-items:end">
+    <div>
+      <label>Период: с даты приёмки</label>
+      <input type="date" name="date_from" data-date value="{{ date_from }}">
+    </div>
+    <div>
+      <label>По дату включительно</label>
+      <input type="date" name="date_to" data-date value="{{ date_to }}">
+    </div>
+    <div>
+      <label>Поставщик (необязательно)</label>
+      <select name="postavshik">
+        <option value="">— все поставщики —</option>
+        {% for p in postavshiki %}
+        <option value="{{ p.get('kratkoe_naimovanie') or p.get('polnoe_naimovanie','') }}"
+          {% if postavshik == (p.get('kratkoe_naimovanie') or p.get('polnoe_naimovanie','')) %}selected{% endif %}>
+          {{ p.get('kratkoe_naimovanie') or p.get('polnoe_naimovanie','') }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="toolbar" style="grid-column:1/-1;margin-top:12px">
+      <button type="submit">Сформировать отчёт</button>
+      <a class="btn btn-green" id="exportBtn"
+         href="/otchet/obem/export?date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&postavshik={{ postavshik|urlencode }}">
+        ⬇ Выгрузить в XLSX</a>
+      <a class="btn btn-gray" href="/otchet/obem">Сбросить фильтры</a>
+      <span class="muted">Документов в отчёте: {{ report.docs_used }}
+        {% if report.skipped %}(отклонено фильтром: {{ report.skipped }}){% endif %}</span>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if report.lines %}
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px">№</th>
+        <th>Код товара</th>
+        <th>Краткое наименование</th>
+        <th>Наименование</th>
+        <th>Ед. изм.</th>
+        <th>Количество (объём)</th>
+        <th>Сумма без НДС, руб.</th>
+        <th>Сумма НДС, руб.</th>
+        <th>Сумма с НДС, руб.</th>
+        <th>Документы приёмки</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in report.lines %}
+      <tr>
+        <td>{{ l.nom }}</td>
+        <td>{{ l.kod_tovara }}</td>
+        <td><b>{{ l.naimovanie }}</b></td>
+        <td class="muted">{{ l.polnoe_naimovanie if l.polnoe_naimovanie != l.naimovanie else '' }}</td>
+        <td>{{ l.ed_izm }}</td>
+        <td style="text-align:right">{{ l.kolichestvo }}</td>
+        <td style="text-align:right">{{ l.bez_nds }}</td>
+        <td style="text-align:right">{{ l.nds }}</td>
+        <td style="text-align:right">{{ l.s_nds }}</td>
+        <td>{{ l.dokumenty }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="6" style="text-align:right"><b>ИТОГО ({{ report.totals.positions }} строк):</b></td>
+        <td style="text-align:right"><b>{{ report.totals.bez_nds }}</b></td>
+        <td style="text-align:right"><b>{{ report.totals.nds }}</b></td>
+        <td style="text-align:right"><b>{{ report.totals.s_nds }}</b></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  {% else %}
+  <p class="muted">Нет данных: по выбранным фильтрам приёмки не найдены.
+  Сформируйте документы «Приемка» или сбросьте фильтры.</p>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// В настольном режиме (без браузера) выгрузка открывает файл в редакторе таблиц
+document.getElementById('exportBtn').addEventListener('click', async function(e){
+  try{
+    const r = await fetch(this.href);
+    const ct = r.headers.get('Content-Type') || '';
+    if (ct.includes('json')) {
+      e.preventDefault();
+      const j = await r.json();
+      if (j.ok) showMsg('Отчёт сохранён и открыт: ' + j.file);
+      else showMsg('Ошибка выгрузки');
+    }
+    // иначе браузер сам скачает XLSX
+  }catch(err){ /* сетевая ошибка — оставляем обычную переход-ссылку */ }
+});
+</script>
+{% endblock %}

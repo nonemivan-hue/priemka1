@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Приемки товаров, работ, услуг (ф. 0510452)</h1>
+<div class="toolbar">
+  <a class="btn btn-green" href="/dokument/priemka/new">➕ Новая приёмка</a>
+  <a class="btn btn-gray" href="/">← На главную</a>
+</div>
+<div class="card" style="overflow-x:auto">
+<table>
+<tr><th>№</th><th>Дата</th><th>Поставщик</th><th>Основание</th><th>Комиссия (приказ)</th><th>Сумма с НДС</th><th></th></tr>
+{% for p in items %}
+<tr>
+  <td><a href="/dokument/priemka/{{p.id}}">{{p.get('номер','б/н')}}</a></td>
+  <td>{{p.get('дата','')}}</td>
+  <td>{{(p.get('postavshik') or {}).get('polnoe_naimovanie','')}}</td>
+  <td>{{p.get('osnovanie_vid','')}} №{{p.get('osnovanie_nom','')}} от {{p.get('osnovanie_data','')}}</td>
+  <td>{% if p.get('prikaz_id') %}Приказ id={{p.prikaz_id}}{% else %}—{% endif %}</td>
+  <td>{{ '%.2f'|format(p.get('itog',0) or 0) }}</td>
+  <td nowrap>
+    <a class="btn" style="padding:3px 10px;font-size:12px" href="/dokument/priemka/{{p.id}}">✏ Изменить</a>
+    <button class="btn btn-green" style="padding:3px 10px;font-size:12px" onclick="prt({{p.id}},this)">🖨 Печатная форма</button>
+    <button class="btn" style="padding:3px 10px;font-size:12px" onclick="xcl('/dokument/priemka/{{p.id}}/excel',this,'Приемка_{{p.id}}.xlsx')">📤 В Excel</button>
+    <button class="btn-red" onclick="delP({{p.id}})">❌</button>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="muted">Приёмок пока нет.</td></tr>
+{% endfor %}
+</table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function delP(id){
+  if(!confirm('Удалить приёмку?'))return;
+  await postJSON('/dokument/priemka/delete',{id:id});
+  location.reload();
+}
+async function prt(id,btn){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Формирование…';
+  try{
+    const r=await fetch('/dokument/priemka/'+id+'/print');
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      // Настольный режим: файл сохранён (и открыт в редакторе) на компьютере
+      const j=await r.json();
+      alert(j.ok?('Печатная форма сохранена:\n'+j.file):'Ошибка формирования формы');
+    } else if(r.ok){
+      // Веб-режим: скачивание файла
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='Приемка_форма0510452.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка печати: '+e);}
+  btn.disabled=false; btn.textContent=t0;
+}
+// Универсальная выгрузка документа в Excel: веб — скачивание, настольный — файл+открытие
+async function xcl(url,btn,fname){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Выгрузка…';
+  try{
+    const r=await fetch(url);
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Файл сохранен:\n'+j.file):('Ошибка выгрузки: '+(j.error||'')));
+    } else if(r.ok){
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка выгрузки в Excel: '+e);}
+  btn.disabled=false; btn.textContent=t0;
+}
+</script>
+{% endblock %}

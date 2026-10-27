@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Справочник «{{ title }}»</h1>
+
+<div class="toolbar">
+  <a class="btn" href="/">← На главную</a>
+  {% set siblings = ['postavshiki','vidy_dokumentov','nomenklatura','stavki_nds',
+                     'strany_proiskhozhdeniya','fias','ed_izmereniya','sotrudniki'] %}
+  <select onchange="location='/catalog/'+this.value">
+    {% for s in siblings %}
+      {% set titles = {'postavshiki':'Поставщик','vidy_dokumentov':'Виды документов','nomenklatura':'Номенклатура',
+                        'stavki_nds':'Ставки НДС','strany_proiskhozhdeniya':'Страна происхождения',
+                        'fias':'Адресный классификатор (ФИАС)','ed_izmereniya':'Ед. измерения (ОКЕИ)','sotrudniki':'Сотрудники'} %}
+      <option value="{{s}}" {% if s==name %}selected{% endif %}>{{titles[s]}}</option>
+    {% endfor %}
+  </select>
+  {% if is_net %}<button id="netBtn" onclick="loadNet()">🌐 Загрузить из интернета</button>{% endif %}
+  {% if name in ['postavshiki','nomenklatura','sotrudniki','fias'] %}
+  <form id="importForm" enctype="multipart/form-data" style="display:inline-flex;gap:6px;align-items:center">
+    <input type="file" name="file" id="importFile" accept=".xlsx,.xls" style="width:auto;padding:4px">
+    <button type="button" class="btn btn-gray" onclick="doImport()">📥 Импорт из Excel</button>
+  </form>
+  {% endif %}
+  <button onclick="addRow()">➕ Добавить запись</button>
+  <button class="btn-red" id="bulkDelBtn" onclick="delSelected()" disabled>🗑 Удалить выбранные (<span id="selCount">0</span>)</button>
+</div>
+
+<div class="card" style="overflow-x:auto">
+<table id="tbl"></table>
+</div>
+<p class="muted">Двойной щелчок по ячейке — редактирование. Кнопки в конце строки: ❌ удалить. Для массового удаления отметьте записи галочками слева и нажмите «🗑 Удалить выбранные» (есть режим «Выбрать все»).</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CATALOG = "{{ name }}";
+let ITEMS = {{ items|tojson }};
+// справочники-источники для полей номенклатуры (страна, ед.изм, ставка НДС)
+const REFS = {{ (refs or {'strany': [], 'ed_izm': [], 'stavki': []})|tojson }};
+
+const SCHEMAS = {
+ postavshiki: [
+   ['polnoe_naimovanie','Полное наименование'],
+   ['kratkoe_naimovanie','Краткое наименование'],
+   ['adres','Адрес (местонахождение) — из ФИАС'],
+   ['ogrn','ОГРН (ОГРНИП)'],['inn','ИНН'],['kpp','КПП'],
+   ['dolzhnost','Должность'],['fio','ФИО'],
+   ['dogovor','Договор'],['data_zakl','Дата заключения'],['ikz','ИКЗ']],
+ vidy_dokumentov: [['наименование','Вид документа']],
+ nomenklatura: [
+   ['kod_tovara','Код товара/работ, услуг'],
+   ['kratkoe_naimovanie','Краткое наименование (для отчёта по объёму)'],
+   ['naimovanie','Наименование товара (описание работ, услуг)'],
+   ['strana_kod','Страна: цифровой код ▼','strany'],
+   ['strana_name','Страна: краткое наименование'],
+   ['oei_kod','ОКЕИ код ▼','okey'],
+   ['ed_izm','Ед. изм. (обозначение)'],
+   ['stavka_nds','Ставка НДС ▼','nds'],
+   ['nom_deklaracii','№ декларации / № партии прослеживаемости'],
+   ['nom_certifikata','№ сертификата соответствия']],
+ stavki_nds: [['value','Ставка НДС']],
+ strany_proiskhozhdeniya: [['kod','Цифровой код'],['naimovanie','Наименование страны']],
+ fias: [['indeks','ИНДЕКС'],['kray_oblast','Край/область'],['rayon','Район'],
+        ['gorod','Город'],['naselenny_punkt','Населенный пункт'],['ulica','ул.'],
+        ['dom','д.'],['korpus','корпус'],['kvartira','кв.']],
+ ed_izmereniya: [['kod','Код по ОКЕИ'],['obozachenie','Условное обозначение'],['naimovanie','Наименование']],
+ sotrudniki: [['dolzhnost','Должность'],['fio','ФИО']],
+};
+const schema = SCHEMAS[CATALOG];
+const isSimple = (CATALOG === 'stavki_nds');
+let SELECTED = new Set(); // индексы выбранных записей для массового удаления
+
+function cellVal(it, key){ return isSimple ? it : (it[key] ?? ''); }
+
+function updateBulkBtn(){
+  const b = document.getElementById('bulkDelBtn'), c = document.getElementById('selCount');
+  if(!b) return;
+  c.textContent = SELECTED.size;
+  b.disabled = SELECTED.size === 0;
+}
+function toggleRow(i, chk){
+  if(chk.checked) SELECTED.add(i); else SELECTED.delete(i);
+  updateBulkBtn();
+}
+function toggleAll(chk){
+  ITEMS.forEach((_,i)=>{ if(chk.checked) SELECTED.add(i); else SELECTED.delete(i); });
+  render();
+}
+async function delSelected(){
+  const idxs = [...SELECTED].sort((a,b)=>a-b);
+  if(!idxs.length) return;
+  if(!confirm('Удалить выбранные записи: '+idxs.length+' шт.?')) return;
+  const r = await fetch('/catalog/'+CATALOG+'/delete',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({indexes:idxs})});
+  const j = await r.json();
+  if(j.ok){ ITEMS = ITEMS.filter((_,i)=>!SELECTED.has(i)); SELECTED.clear(); render(); showMsg('Удалено записей: '+(j.removed??idxs.length)); }
+  else showMsg(j.msg||'Ошибка удаления');
+}
+
+// значения справочников-источников для выпадающих списков номенклатуры
+function refOptions(kind){
+  if(kind==='strany') return REFS.strany.filter(s=>s&&s.kod).map(s=>({v:String(s.kod), t:String(s.kod)+' — '+(s.naimovanie||''), extra:{strana_name:s.naimovanie||''}}));
+  if(kind==='okey')   return REFS.ed_izm.filter(e=>e&&e.kod).map(e=>{const ob=e.obozachenie||e.naimovanie||'';return {v:String(e.kod), t:String(e.kod)+' — '+ob, extra:{ed_izm:ob}};});
+  if(kind==='nds')   return REFS.stavki.map(s=>String(typeof s==='string'?s:(s&&s.value)||'').trim()).filter(Boolean).map(s=>({v:s,t:s,extra:{}}));
+  return [];
+}
+
+function render(){
+  const allChecked = ITEMS.length>0 && ITEMS.every((_,i)=>SELECTED.has(i));
+  let html = '<tr><th style="width:26px"><input type="checkbox" onchange="toggleAll(this)" title="Выбрать все"'
+           + (allChecked?' checked':'') + '></th><th>№</th>' + schema.map(s=>'<th>'+s[1]+'</th>').join('') + '<th></th></tr>';
+  ITEMS.forEach((it,i)=>{
+    html += '<tr data-i="'+i+'"><td><input type="checkbox" '+(SELECTED.has(i)?'checked ':'')+'onchange="toggleRow('+i+',this)"></td><td>'+(i+1)+'</td>';
+    schema.forEach(s=>{
+      const v = String(cellVal(it,s[0])??'').replace(/"/g,'&quot;');
+      if(s[2]){ // поле выбирается из справочника
+        html += '<td><select onchange="pickRef('+i+',\''+s[0]+'\',\''+s[2]+'\',this)" title="Выбор из справочника">'
+             +  '<option value="">— не выбрано —</option>';
+        const opts = refOptions(s[2]);
+        let found = false;
+        opts.forEach(o=>{
+          const sel = String(v)===o.v; if(sel)found=true;
+          html += '<option value="'+o.v+'"'+(sel?' selected':'')+'>'+o.t.replace(/</g,'&lt;')+'</option>';
+        });
+        if(!found && v) html += '<option value="'+v+'" selected>'+v+' (вне справочника)</option>';
+        html += '</select></td>';
+      }else{
+        html += '<td ondblclick="editCell(this,'+i+',\''+s[0]+'\')" title="Двойной щелчок — изменить">'+v+'</td>';
+      }
+    });
+    html += '<td nowrap><button class="btn-red" onclick="delRow('+i+')">❌</button></td></tr>';
+  });
+  document.getElementById('tbl').innerHTML = html;
+}
+
+async function pickRef(i,key,kind,sel){
+  const val = sel.value;
+  ITEMS[i][key] = val;
+  const opt = refOptions(kind).find(o=>o.v===val);
+  if(opt && opt.extra) Object.assign(ITEMS[i], opt.extra);
+  render();
+  await postJSON('/catalog/'+CATALOG+'/update', {_index:i, ...ITEMS[i]});
+  showMsg('Сохранено');
+}
+
+function editCell(td,i,key){
+  if(td.querySelector('input'))return;
+  const old = String(cellVal(ITEMS[i],key)??'');
+  td.innerHTML = '<input value="'+old.replace(/"/g,'&quot;')+'" onkeydown="if(event.key===\'Enter\')saveCell('+i+',\''+key+'\',this)">';
+  td.querySelector('input').focus();
+}
+async function saveCell(i,key,input){
+  const val = input.value.trim();
+  if(isSimple){ITEMS[i]=val;}else{ITEMS[i][key]=val;}
+  render();
+  await postJSON('/catalog/'+CATALOG+'/update', isSimple?{_index:i,value:val}:{_index:i,...(isSimple?{}:ITEMS[i])});
+  showMsg('Сохранено');
+}
+async function addRow(){
+  let row = {};
+  if(isSimple){
+    const v = prompt('Новая ставка НДС:'); if(!v)return;
+    ITEMS.push(v);
+    await postJSON('/catalog/'+CATALOG+'/add',{value:v});
+  }else{
+    schema.forEach(s=>row[s[0]]='');
+    ITEMS.push(row);
+    await postJSON('/catalog/'+CATALOG+'/add',row);
+  }
+  render(); showMsg('Запись добавлена');
+}
+async function delRow(i){
+  if(!confirm('Удалить запись №'+(i+1)+'?'))return;
+  await postJSON('/catalog/'+CATALOG+'/delete',{_index:i});
+  ITEMS.splice(i,1); SELECTED.delete(i); [...SELECTED].forEach(x=>{ if(x>i) SELECTED.delete(x), SELECTED.add(x-1); });
+  render(); showMsg('Удалено');
+}
+async function loadNet(){
+  const b=document.getElementById('netBtn');b.disabled=true;b.textContent='Загрузка…';
+  try{
+    const r=await fetch('/catalog/'+CATALOG+'/load_net',{method:'POST'});
+    const j=await r.json();
+    showMsg(j.msg||'Загружено '+j.count);
+    setTimeout(()=>location.reload(),1000);
+  }catch(e){showMsg('Ошибка: '+e);b.disabled=false;b.textContent='🌐 Загрузить из интернета';}
+}
+async function doImport(){
+  const f=document.getElementById('importFile').files[0];
+  if(!f){showMsg('Выберите файл Excel');return;}
+  const fd=new FormData();fd.append('file',f);
+  const r=await fetch('/catalog/'+CATALOG+'/import',{method:'POST',body:fd});
+  const j=await r.json();
+  if(j.ok){showMsg('Импортировано записей: '+j.added);setTimeout(()=>location.reload(),900);}
+  else showMsg(j.msg||'Ошибка импорта');
+}
+render();
+</script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{% if item %}Приказ комиссии № {{item.nomer}}{% else %}Новый приказ комиссии{% endif %}</h1>
+<form method="post" action="/dokument/prikaz/save" class="card">
+  {% if item %}<input type="hidden" name="id" value="{{item.id}}">{% endif %}
+  <div class="cols3">
+    <div><label>№ приказа</label>
+      <input name="nomer" required value="{{item.nomer if item else ''}}" placeholder="напр. 25"></div>
+    <div><label>Дата</label>
+      <input name="data" type="date" data-date required value="{{item.data if item else ''}}"></div>
+    <div><label>Наименование комиссии</label>
+      <input name="nanimovanie" value="{{item.nanimovanie if item else ''}}"
+             placeholder="приёмочная комиссия по приемке товаров, работ, услуг"></div>
+  </div>
+
+  <fieldset><legend>Председатель комиссии (из справочника «Сотрудники»)</legend>
+    <select name="predsedatel" id="predsedatel" onchange="fillDolzh(this,'pred_dolzh')">
+      <option value="">— выберите сотрудника —</option>
+      {% for s in sotrudniki %}
+      <option value="{{s.fio}}" {% if item and item.predsedatel==s.fio %}selected{% endif %}>
+        {{s.fio}} — {{s.dolzhnost}}</option>
+      {% endfor %}
+    </select>
+    <label>Должность</label>
+    <input id="pred_dolzh" readonly value="{% if item %}{% for s in sotrudniki %}{% if s.fio==item.predsedatel %}{{s.dolzhnost}}{% endif %}{% endfor %}{% endif %}">
+  </fieldset>
+
+  <fieldset><legend>Члены комиссии (из справочника «Сотрудники»)</legend>
+    <div id="chlenyBox">
+      {% set chosen = item.chleny if item else [] %}
+      {% for s in sotrudniki %}
+      <label style="display:inline-block;width:330px;font-size:13px;color:#222">
+        <input type="checkbox" name="chleny[]" value="{{s.fio}}" style="width:auto"
+          {% if s.fio in chosen %}checked{% endif %}>
+        {{s.fio}} <span class="muted">({{s.dolzhnost}})</span></label>
+      {% endfor %}
+      {% if not sotrudniki %}<p class="muted">Справочник «Сотрудники» пуст — заполните его или импортируйте из Excel.</p>{% endif %}
+    </div>
+  </fieldset>
+
+  <button type="submit">💾 Сохранить приказ</button>
+  {% if item %}<button type="button" onclick="xcl('/dokument/prikaz/{{item.id}}/excel',this,'Prikaz_{{item.id}}.xlsx')">📤 В Excel</button>{% endif %}
+  <button type="button" onclick="goBack()">← Назад</button>
+  <a class="btn btn-gray" href="/dokument/prikaz">К списку приказов</a>
+</form>
+<p class="muted">Если нужного сотрудника нет — добавьте его в справочник
+<a href="/catalog/sotrudniki">«Сотрудники»</a>.</p>
+{% endblock %}
+{% block scripts %}
+<script>
+function goBack(){var v=(document.cookie.match(/(?:^|; )_back=([^;]+)/)||[])[1];if(v){location.href=decodeURIComponent(v);}else if(history.length>1){history.back();}else{location.href='/';}}
+
+const SOT = {{ sotrudniki|tojson }};
+function fillDolzh(sel,outId){
+  const s = SOT.find(x=>x.fio===sel.value);
+  document.getElementById(outId).value = s ? s.dolzhnost : '';
+}
+async function xcl(url,btn,fname){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Выгрузка…';
+  try{
+    const r=await fetch(url);
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Файл сохранен:\n'+j.file):('Ошибка выгрузки: '+(j.error||'')));
+    } else if(r.ok){
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка выгрузки в Excel: '+e);}
+  btn.disabled=false; btn.textContent=t0;
+}
+</script>
+{% endblock %}
