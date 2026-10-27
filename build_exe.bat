@@ -24,6 +24,7 @@ pyinstaller --noconfirm --clean --onefile --windowed ^
   --add-data "data;data" ^
   --add-data "Razdel1.xlsx;." ^
   --add-data "Ostalnoe.xlsx;." ^
+  --add-data "Primer_formy.xlsx;." ^
   --add-data "CHANGELOG.md;." ^
   desktop.py
 if errorlevel 1 goto :fail
