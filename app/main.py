@@ -587,6 +587,19 @@ def priemka_save():
     nom_by_kod = {str(n.get('kod_tovara', '')): n for n in nom.values()}
     for i, poz in enumerate(payload.get('pozicii', [])):
         poz['nom'] = i + 1
+        # поля «кол-во» и «цена» — не более 7 знаков (цифр)
+        for knum in ('kolichestvo', 'cena'):
+            val = str(poz.get(knum, '') or '').strip().replace(',', '.')
+            if re.fullmatch(r'-?\d+(\.\d+)?', val):
+                digits = val.lstrip('-').replace('.', '')
+                if len(digits) > 7:
+                    intp, _, frac = val.partition('.')
+                    sign = '-' if intp.startswith('-') else ''
+                    intp_d = intp.lstrip('-')
+                    intp_d = intp_d[:7]                 # целая часть — до 7 цифр
+                    frac = frac[:max(0, 7 - len(intp_d))]  # всего цифр <= 7
+                    val = sign + intp_d + ('.' + frac if frac else '')
+                    poz[knum] = val
         n = nom.get((str(poz.get('kod_tovara', '')), str(poz.get('naimovanie', '')))) \
             or nom_by_kod.get(str(poz.get('kod_tovara', '')))
         if n:
