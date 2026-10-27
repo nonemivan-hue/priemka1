@@ -232,7 +232,7 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     # Утверждаем: дата документа-акта
     _set(ws1, 'CR6', den)
     _set(ws1, 'CW6', mesyac)
-    _set(ws1, 'DO6', str(dt_act.year))
+    _set(ws1, 'DO6', god2)  # только последние 2 цифры года (формат «20__ г.»)
     # Номер акта
     _set(ws1, 'CI8', doc.get('номер', 'б/н'))
     _set(ws1, 'ER32', doc.get('номер', 'б/н'))
