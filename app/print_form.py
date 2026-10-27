@@ -73,7 +73,13 @@ def _anchor(ws, coord):
     for rng in ranges:
         if (rng.min_row <= max_row and rng.max_row >= min_row and
                 rng.min_col <= max_col and rng.max_col >= min_col):
-            return '%s%d' % (get_column_letter(rng.min_col), rng.min_row)
+            anchor = '%s%d' % (get_column_letter(rng.min_col), rng.min_row)
+            # если координата лежит внутри слияния — это гарантированно его
+            # верхняя левая ячейка; иначе (пересечение краёв разных слияний)
+            # оставляем исходную координату, чтобы не перезаписать чужое поле
+            c0, r0 = column_index_from_string(get_column_letter(min_col)), min_row
+            if rng.min_row <= min_row <= rng.max_row and rng.min_col <= c0 <= rng.max_col:
+                return anchor
     return coord
 
 
@@ -96,6 +102,78 @@ def _clear_cells(ws, coords):
     """Очищает (обнуляет) указанные ячейки готовящейся формы."""
     for coord in coords:
         ws[_anchor(ws, coord)].value = None
+
+
+# Столбцы с границами ячеек в таблице раздела 4 листа «стр.2_3»
+# (позиции номенклатуры). Нужны для отрисовки сетки дополнительно
+# вставленных строк (версия 1.7.2).
+_TABLE4_MIN_COL = column_index_from_string('A')
+_TABLE4_MAX_COL = column_index_from_string('FE')
+
+
+def _fix_str23_table_lines(ws, itog_row=35):
+    """Дорисовывает недостающие линии таблиц на листе «стр.2_3».
+
+    В исходном шаблоне «Остальное.xlsx» у столбцов FE..FL границы не
+    заданы вовсе — из-за этого правая рамка таблицы раздела 4
+    (последняя колонка — «Отклонение по количеству (объему)», EX:FE)
+    отсутствует, и в формируемом акте на стр.2_3 не хватает нарисованной
+    линии справа. Здесь правой границей последней ячейки каждой строки
+    таблицы (диапазон 29..itog_row) ставится та же линия, что у левых/
+    нижних рамок этой строки; строку «Итого» замыкается линией medium.
+    """
+    from copy import copy as _copy
+
+    def _style_of(b):
+        return b.left.style or b.right.style or b.top.style or b.bottom.style
+
+    for r in range(29, itog_row + 1):
+        row_cells = [c for c in ws[r] if c.column <= _TABLE4_MAX_COL]
+        last = max(row_cells, key=lambda c: c.column) if row_cells else None
+        if last is None:
+            continue
+        b = last.border
+        need = 'medium' if r == itog_row else (_style_of(b) or 'thin')
+        if need and b.right.style != need:
+            nb = _copy(b)
+            nb.right = _copy(b.right)
+            nb.right.style = need
+            last.border = nb
+
+
+def _remove_country_code_underline(ws):
+    """Убирает подчёркивание цифрового кода страны происхождения товара.
+
+    Колонка 4 таблицы раздела 4 — «Страна происхождения товара»:
+    цифровой код (AH31/AH33/AH34...) и краткое наименование (AO...).
+    В шаблоне значения в этих ячейках были с подчёркиванием; в
+    сформированной форме подчёркивание не используется.
+    """
+    from openpyxl.styles import Font
+    from copy import copy as _copy
+
+    for row in ws.iter_rows(min_col=column_index_from_string('AH'),
+                            max_col=column_index_from_string('AW')):
+        for c in row:
+            f = c.font
+            if f is not None and f.underline:
+                nf = _copy(f)
+                nf.underline = None
+                c.font = nf
+
+
+def _clone_row_borders(ws, src_row, dst_row):
+    """Копирует границы всех ячеек строки src_row в строку dst_row.
+
+    Используется при добавлении дополнительных позиций (ниже строк
+    33—34 шаблона), чтобы новые строки таблиц имели те же линии,
+    что и строки-образцы.
+    """
+    from copy import copy as _copy
+    for col in range(_TABLE4_MIN_COL, _TABLE4_MAX_COL + 1):
+        s = ws.cell(row=src_row, column=col)
+        d = ws.cell(row=dst_row, column=col)
+        d.border = _copy(s.border)
 
 
 def _split_date(dt):
@@ -244,35 +322,42 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     n = len(rows)
     needed = max(2, ((n + 1) // 2) * 2)  # чётное число строк блоками по 2
     if needed > 2:
+        # ВНИМАНИЕ: дополнительные строки вставляем МЕТОДОМ СДВИВА
+        # (insert_rows), иначе позиции перезаписывали бы строку «Итого»
+        # и нижние разделы (35+). Границы новых строк копируются со
+        # строк-образцов 33/34 — таблицы сохраняют все нарисованные
+        # линии (версия 1.7.2).
+        #
+        # Важно: сдвиг выполняется ДО записи значений, потому что
+        # openpyxl при insert_rows не переносит объединённые диапазоны
+        # ниже вставляемой строки; все адреса строк «Итого», раздела 5,
+        # комиссии и подписей (5.0) указаны уже со сдвигом.
         extra = needed - 2
-
-        def _overlaps(a_min_r, a_max_r, b_min_r, b_max_r):
-            return a_min_r <= b_max_r and a_max_r >= b_min_row_placeholder if False else (a_min_r <= b_max_r and a_max_r >= b_min_r)
-
-        # ВНИМАНИЕ: вставляем строки МЕТОДОМ СДВИВА (insert_rows), а не копированием
-        # ниже таблиц — иначе перезаписываем подписи/приложения (строки 39+).
-        pass
+        ws23.insert_rows(35, extra)
+        for k in range(extra):
+            _clone_row_borders(ws23, 33 if k % 2 == 0 else 34, 35 + k)
+    shift = lambda r: r + max(0, needed - 2)  # смещение строк 35+ после вставки
     total_blocks = needed // 2
     for b in range(total_blocks):
         chunk = rows[b * 2:b * 2 + 2]
-        base = 33 if b == 0 else None
         if b == 0:
             _fill_section4_chunk(ws23, chunk, 33, catalogs)
         else:
             for i, poz in enumerate(chunk):
                 r = 35 + (b - 1) * 2 + i
                 _fill_extra_poz(ws23, r, poz)
-    # Итого с НДС (строка 35 шаблона EF35 / DD35)
+    itog_row = 35 + max(0, needed - 2)  # строка «Итого» после вставки
+    # Итого с НДС (EF/DD строки «Итого»)
     itog = 0.0
-    for r in [33, 34] + list(range(35, 35 + max(0, needed - 2))):
+    for r in [33, 34] + list(range(35, itog_row)):
         v = ws23[_anchor(ws23, 'DD%d' % r)].value
         if isinstance(v, (int, float)):
             itog += v
-    _set(ws23, 'EF35', itog, highlight=False)
+    _set(ws23, 'EF%d' % itog_row, itog, highlight=False)
 
     # Приложение: наименование документа-основания (АКТ...)
-    _set(ws23, 'Z47', doc.get('dok_otgruzka', ''))
-    _set(ws23, 'CV48', doc.get('fail_pdf', ''))
+    _set(ws23, 'Z%d' % shift(47), doc.get('dok_otgruzka', ''))
+    _set(ws23, 'CV%d' % shift(48), doc.get('fail_pdf', ''))
 
     # Комиссия по приказу
     com = doc.get('komissiya_rows', []) or []
@@ -280,33 +365,37 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     idx = 0
     if com:
         head = com[0]
-        _set(ws23, 'AA51', head.get('dolzhnost', ''))
-        _set(ws23, 'BP51', head.get('fio', ''))
+        _set(ws23, 'AA%d' % shift(51), head.get('dolzhnost', ''))
+        _set(ws23, 'BP%d' % shift(51), head.get('fio', ''))
         idx = 1
     for row_i in range(len(slots) - 1):
         if idx < len(com):
             m = com[idx]
-            r = slots[row_i + 1][0]
+            r = shift(slots[row_i + 1][0])
             _set(ws23, 'AA%d' % r, m.get('dolzhnost', ''))
             _set(ws23, 'BP%d' % r, m.get('fio', ''))
             idx += 1
     # Ответственный исполнитель
     resp = doc.get('otvetstvenny', {}) or {}
-    _set(ws23, 'AA59', resp.get('dolzhnost', ''))
-    _set(ws23, 'BP59', resp.get('fio', ''))
-    _set(ws23, 'CO59', resp.get('telefon', ''))
-    _set(ws23, 'DL59', resp.get('email', ''))
+    _set(ws23, 'AA%d' % shift(59), resp.get('dolzhnost', ''))
+    _set(ws23, 'BP%d' % shift(59), resp.get('fio', ''))
+    _set(ws23, 'CO%d' % shift(59), resp.get('telefon', ''))
+    _set(ws23, 'DL%d' % shift(59), resp.get('email', ''))
 
     # Даты подписей комиссией = дата акта
-    _set(ws23, 'C64', den)
-    _set(ws23, 'H64', mesyac)
-    _set(ws23, 'Z64', god2)
-    _set(ws23, 'AA66', uch.get('rukovoditel_dolzhnost', 'Руководитель'))
-    _set(ws23, 'BP66', uch.get('rukovoditel', ''))
+    _set(ws23, 'C%d' % shift(64), den)
+    _set(ws23, 'H%d' % shift(64), mesyac)
+    _set(ws23, 'Z%d' % shift(64), god2)
+    _set(ws23, 'AA%d' % shift(66), uch.get('rukovoditel_dolzhnost', 'Руководитель'))
+    _set(ws23, 'BP%d' % shift(66), uch.get('rukovoditel', ''))
 
     # Сохраняем обе части формы (два листа) в одном файле
     ws1.title = 'стр.1'
     ws23.title = 'стр.2_3'
+    # Дорисовка недостающих линий таблиц и снятие подчёркивания кода
+    # страны происхождения — после заполнения всех позиций (1.7.2).
+    _fix_str23_table_lines(ws23, itog_row)
+    _remove_country_code_underline(ws23)
     for ws in (ws1, ws23):
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.paperSize = 9  # A4
