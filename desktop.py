@@ -14,11 +14,17 @@
 только самому приложению (порт подбирается автоматически).
 """
 import logging
+import os
 import socket
 import sys
 import threading
 
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
+
+# --- подготовка окружения внутри собранного EXE (до импорта app) ----------
+if getattr(sys, 'frozen', False):
+    import _frozen_bootstrap
+    _frozen_bootstrap.prepare()
 
 from app.main import app  # noqa: E402
 from version import APP_VERSION  # noqa: E402
@@ -69,5 +75,30 @@ def main():
     webview.start()  # блокирует до закрытия окна; приложение закрывается целиком
 
 
+def _crash_dialog(exc):
+    """Показывает ошибку в окне (в собранном EXE консоли нет)."""
+    import traceback
+    text = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            0, 'Приложение не запустилось:\n\n%s' % text,
+            'Ошибка запуска — Приёмка товаров', 0x10)
+    except Exception:
+        try:
+            log = os.path.join(os.path.dirname(os.path.abspath(sys.executable)),
+                               'startup_error.log')
+            with open(log, 'w', encoding='utf-8') as f:
+                f.write(text)
+        except Exception:
+            pass
+
+
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as e:  # noqa: BLE001
+        if getattr(sys, 'frozen', False):
+            _crash_dialog(e)
+        else:
+            raise

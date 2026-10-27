@@ -19,7 +19,8 @@ import urllib.error
 import urllib.request
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE_DIR = os.path.join(ROOT_DIR, 'data')
+DATA_DIR = os.environ.get('PRIEMKA_DATA_DIR') or os.path.join(ROOT_DIR, 'data')
+CACHE_DIR = DATA_DIR
 
 socket.setdefaulttimeout(15)
 

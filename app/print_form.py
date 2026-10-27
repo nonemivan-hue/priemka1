@@ -8,6 +8,7 @@
 """
 import os
 import re
+import sys
 from datetime import date, datetime
 
 import openpyxl
@@ -15,8 +16,27 @@ from openpyxl.styles import PatternFill
 from openpyxl.utils import column_index_from_string
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE_STR1 = os.path.join(ROOT_DIR, 'Раздел1.xlsx')
-TEMPLATE_STR23 = os.path.join(ROOT_DIR, 'Остальное.xlsx')
+
+
+def _res(name):
+    """Путь к ресурсу: внутри собранного EXE — каталог sys._MEIPASS.
+
+    В сборке шаблоны лежат под ASCII-именами Razdel1.xlsx / Ostalnoe.xlsx
+    (кириллические имена файлов при упаковке иногда ломаются).
+    """
+    if getattr(sys, 'frozen', False):
+        base = getattr(sys, '_MEIPASS', ROOT_DIR)
+        for alt in (name, {'Раздел1.xlsx': 'Razdel1.xlsx',
+                           'Остальное.xlsx': 'Ostalnoe.xlsx'}.get(name, name)):
+            p = os.path.join(base, alt)
+            if os.path.isfile(p):
+                return p
+        return os.path.join(base, name)
+    return os.path.join(ROOT_DIR, name)
+
+
+TEMPLATE_STR1 = _res('Раздел1.xlsx')
+TEMPLATE_STR23 = _res('Остальное.xlsx')
 
 YELLOW = PatternFill('solid', fgColor='FFFFFF00')  # подсветка заполненных полей (жёлтый, как в шаблонах)
 
