@@ -62,7 +62,8 @@
     <td>{{(p.get('postavshik') or {}).get('polnoe_naimovanie','')}}</td>
     <td>{{p.get('osnovanie_vid','')}} №{{p.get('osnovanie_nom','')}} от {{p.get('osnovanie_data','')}}</td>
     <td>{{ '%.2f'|format(p.get('itog',0) or 0) }}</td>
-    <td><a class="btn" style="padding:3px 10px;font-size:12px" href="/dokument/priemka/{{p.id}}/print">🖨 Печатная форма</a></td>
+    <td><a class="btn" style="padding:3px 10px;font-size:12px" href="/dokument/priemka/{{p.id}}/print">🖨 Печатная форма</a>
+        <a class="btn btn-green" style="padding:3px 10px;font-size:12px" href="/dokument/priemka/{{p.id}}/print61n" title="Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина России от 15.04.2021 № 61н">📄 Акт 61н</a></td>
   </tr>
   {% endfor %}</table>
 </div>
