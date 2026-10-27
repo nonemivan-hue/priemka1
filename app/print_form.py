@@ -86,6 +86,18 @@ def _set(ws, coord, value, highlight=False):
     return cell
 
 
+# Ячейки, данные из которых убраны по требованию (версия 1.7.x):
+#   стр.1: FF1, FJ1, FF2, FL2;  стр.2_3: FK2
+CLEAR_STR1 = ('FF1', 'FJ1', 'FF2', 'FL2')
+CLEAR_STR23 = ('FK2',)
+
+
+def _clear_cells(ws, coords):
+    """Очищает (обнуляет) указанные ячейки готовящейся формы."""
+    for coord in coords:
+        ws[_anchor(ws, coord)].value = None
+
+
 def _split_date(dt):
     """Возвращает (день, месяц_рус_им., год2цифры) для ячеек формы."""
     months = ['', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
@@ -190,15 +202,17 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     _set(ws1, 'AV44', post.get('inn', ''))
     _set(ws1, 'AV45', post.get('kpp', ''))
 
-    # Наименование товара (ключ поиска номенклатуры) — жёлтая ячейка FJ1
-    tovar_key = ''
-    if doc.get('pozicii'):
-        tovar_key = doc['pozicii'][0].get('naimovanie', '')
-    _set(ws1, 'FJ1', tovar_key)
+    # Наименование товара (ключ поиска номенклатуры) — ячейка FJ1 более
+    # не заполняется и очищается вместе с FF1, FF2, FL2 (см. CLEAR_STR1).
 
     # ---------- Остальное (стр. 2—3) ---------------------------------------
-    # Дата в правом верхнем углу
-    _set(ws23, 'FK2', dt_act)
+    # Дата в правом верхнем углу (FK2) более не заполняется (см. CLEAR_STR23).
+
+    # Удаляем данные из ячеек по требованию: стр.1 — FF1, FJ1, FF2, FL2;
+    # стр.2_3 — FK2. Выполняется после всех записей, чтобы гарантированно
+    # очистить и значения из шаблонов, и случайно записанные программой.
+    _clear_cells(ws1, CLEAR_STR1)
+    _clear_cells(ws23, CLEAR_STR23)
 
     # Раздел 2: транспортировка — если задана в документе
     transport = doc.get('transport', {}) or {}
