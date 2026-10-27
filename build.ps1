@@ -15,8 +15,6 @@ $common = @(
     '--add-data', 'data;data',
     '--add-data', 'Razdel1.xlsx;.',
     '--add-data', 'Ostalnoe.xlsx;.',
-    '--add-data', 'Пример формы.XLSX;.',
-    '--add-data', 'Primer_formy.xlsx;.',
     '--add-data', 'CHANGELOG.md;.',
     'desktop.py'
 )

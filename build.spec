@@ -25,11 +25,6 @@ a = Analysis(
         ('Остальное.xlsx', '.'),
         ('Razdel1.xlsx', '.'),
         ('Ostalnoe.xlsx', '.'),
-        # Эталонный бланк печатной формы (ОКУД 0510452, ред. № 174н).
-        # В коде ищется как «Пример формы.XLSX», в EXE упаковывается
-        # под ASCII-именем Primer_formy.xlsx (см. app/print_form.py).
-        ('Пример формы.XLSX', '.'),
-        ('Primer_formy.xlsx', '.'),
         ('CHANGELOG.md', '.'),
     ],
     hiddenimports=[
