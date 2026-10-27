@@ -62,8 +62,8 @@
     <td>{{(p.get('postavshik') or {}).get('polnoe_naimovanie','')}}</td>
     <td>{{p.get('osnovanie_vid','')}} №{{p.get('osnovanie_nom','')}} от {{p.get('osnovanie_data','')}}</td>
     <td>{{ '%.2f'|format(p.get('itog',0) or 0) }}</td>
-    <td><a class="btn" style="padding:3px 10px;font-size:12px" href="/dokument/priemka/{{p.id}}/print">🖨 Печатная форма</a>
-        <a class="btn btn-green" style="padding:3px 10px;font-size:12px" href="/dokument/priemka/{{p.id}}/print61n" title="Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина России от 15.04.2021 № 61н">📄 Акт 61н</a></td>
+    <td><button class="btn" style="padding:3px 10px;font-size:12px" onclick="prt({{p.id}},this)">🖨 Печатная форма</button>
+        <button class="btn btn-green" style="padding:3px 10px;font-size:12px" onclick="prt61({{p.id}},this)" title="Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина России от 15.04.2021 № 61н">📄 Акт 61н</button></td>
   </tr>
   {% endfor %}</table>
 </div>
@@ -80,6 +80,50 @@ async function loadNet(name,btn){
     showMsg(name+': '+j.msg);
     setTimeout(()=>location.reload(),1200);
   }catch(e){showMsg('Ошибка загрузки: '+e);btn.disabled=false;btn.textContent='🌐 Загрузить из интернета';}
+}
+// Печатная форма: в настольном режиме сервер предлагает путь для сохранения
+// (диалог «Сохранить как…») и возвращает JSON; в веб-режиме — скачивание.
+async function prt(id,btn){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Формирование…';
+  try{
+    const r=await fetch('/dokument/priemka/'+id+'/print');
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Печатная форма сохранена:\n'+j.file):'Ошибка формирования формы');
+    } else if(r.ok){
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='Приемка_форма0510452.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка печати: '+e);}
+  btn.disabled=false; btn.textContent=t0;
+}
+// Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина
+// России от 15.04.2021 № 61н — альтернативная печатная форма
+async function prt61(id,btn){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Формирование…';
+  try{
+    const r=await fetch('/dokument/priemka/'+id+'/print61n');
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Акт по форме 61н сохранён:\n'+j.file):'Ошибка формирования акта');
+    } else if(r.ok){
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='Акт_приемки_ОКУД0510452_61н.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка печати: '+e);}
+  btn.disabled=false; btn.textContent=t0;
 }
 </script>
 {% endblock %}

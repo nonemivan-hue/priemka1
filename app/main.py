@@ -605,20 +605,23 @@ def priemka_print(pid):
         build_priemka_xlsx(item, d['constants'], d['catalogs'], out)
     except Exception as e:
         return "Ошибка формирования печатной формы: %s" % e, 500
-    # В настольном режиме (без браузера) дополнительно сохраняем файл в папку
-    # программы и открываем его в установленном редакторе таблиц.
+    # В настольном режиме (без браузера) предлагаем пользователю путь для
+    # сохранения через диалог «Сохранить как…»; при отмене — папка программы.
     if DESKTOP_MODE:
-        saved = os.path.join(EXPORT_DIR, 'Приемка_%s.xlsx' % pid)
+        default_name = 'Приемка_форма0510452_%s.xlsx' % pid
+        target = _save_dialog(default_name)  # предложить пользователю путь
+        if not target:
+            target = os.path.join(EXPORT_DIR, default_name)
         try:
             import shutil
-            shutil.copyfile(out, saved)
+            shutil.copyfile(out, target)
         except Exception:
-            saved = out
+            target = out
         try:
-            os.startfile(saved)  # Windows: открыть в Excel/LibreOffice
+            os.startfile(target)  # Windows: открыть в Excel/LibreOffice
         except Exception:
             pass
-        return jsonify({'ok': True, 'file': saved})
+        return jsonify({'ok': True, 'file': target})
     return send_file(out, as_attachment=True,
                      download_name='Приемка_форма0510452.xlsx')
 
@@ -639,17 +642,20 @@ def priemka_print_61n(pid):
     except Exception as e:
         return "Ошибка формирования акта по форме 61н: %s" % e, 500
     if DESKTOP_MODE:
-        saved = os.path.join(EXPORT_DIR, 'Акт_приемки_61н_%s.xlsx' % pid)
+        default_name = 'Акт_приемки_ОКУД0510452_61н_%s.xlsx' % pid
+        target = _save_dialog(default_name)  # предложить пользователю путь
+        if not target:
+            target = os.path.join(EXPORT_DIR, default_name)
         try:
             import shutil
-            shutil.copyfile(out, saved)
+            shutil.copyfile(out, target)
         except Exception:
-            saved = out
+            target = out
         try:
-            os.startfile(saved)  # Windows: открыть в Excel/LibreOffice
+            os.startfile(target)  # Windows: открыть в Excel/LibreOffice
         except Exception:
             pass
-        return jsonify({'ok': True, 'file': saved})
+        return jsonify({'ok': True, 'file': target})
     return send_file(out, as_attachment=True,
                      download_name='Акт_приемки_ОКУД0510452_61н.xlsx')
 
