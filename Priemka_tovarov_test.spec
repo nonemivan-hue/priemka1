@@ -5,7 +5,7 @@ a = Analysis(
     ['desktop.py'],
     pathex=[],
     binaries=[],
-    datas=[('app/templates', 'app/templates'), ('data', 'data'), ('Razdel1.xlsx', '.'), ('Ostalnoe.xlsx', '.'), ('CHANGELOG.md', '.')],
+    datas=[('app/templates', 'app/templates'), ('data', 'data'), ('Razdel1.xlsx', '.'), ('Ostalnoe.xlsx', '.'), ('Пример формы.XLSX', '.'), ('Primer_formy.xlsx', '.'), ('CHANGELOG.md', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
