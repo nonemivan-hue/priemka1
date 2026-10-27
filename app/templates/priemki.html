@@ -46,17 +46,16 @@ async function prt(id,btn){
       // Настольный режим: файл сохранён (и открыт в редакторе) на компьютере
       const j=await r.json();
       alert(j.ok?('Печатная форма сохранена:\n'+j.file):'Ошибка формирования формы');
-    } else if(r.ok){
-      // Веб-режим: скачивание файла
+    } else {
+      // Скачивание либо страница ошибки с кнопками возврата
       const blob=await r.blob();
       const a=document.createElement('a');
       a.href=URL.createObjectURL(blob);
       a.download='Приемка_форма0510452.xlsx';
       document.body.appendChild(a); a.click(); a.remove();
-    } else {
-      alert('Ошибка: '+await r.text());
+      if(!r.ok){setTimeout(()=>location.href='/',1500);} // страховка: возврат на главную
     }
-  }catch(e){alert('Ошибка печати: '+e);}
+  }catch(e){alert('Ошибка печати: '+e+'\nНажмите ОК и используйте кнопку «Назад».');}
   btn.disabled=false; btn.textContent=t0;
 }
 // Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина
@@ -69,16 +68,15 @@ async function prt61(id,btn){
     if(ct.indexOf('application/json')>=0){
       const j=await r.json();
       alert(j.ok?('Акт по форме 61н сохранён:\n'+j.file):'Ошибка формирования акта');
-    } else if(r.ok){
+    } else {
       const blob=await r.blob();
       const a=document.createElement('a');
       a.href=URL.createObjectURL(blob);
       a.download='Акт_приемки_ОКУД0510452_61н.xlsx';
       document.body.appendChild(a); a.click(); a.remove();
-    } else {
-      alert('Ошибка: '+await r.text());
+      if(!r.ok){setTimeout(()=>location.href='/',1500);} // страховка: возврат на главную
     }
-  }catch(e){alert('Ошибка печати: '+e);}
+  }catch(e){alert('Ошибка печати: '+e+'\nНажмите ОК и используйте кнопку «Назад».');}
   btn.disabled=false; btn.textContent=t0;
 }
 // Универсальная выгрузка документа в Excel: веб — скачивание, настольный — файл+открытие

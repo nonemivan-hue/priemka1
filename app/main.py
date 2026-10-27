@@ -81,8 +81,26 @@ def _save_dialog(default_name):
 
 # Кнопка «Назад»: сервер запоминает предыдущую страницу в cookie _back
 # (ставится после каждого перехода по ссылке) и отдаёт её в заголовке X-Back.
+def _error_page(msg, code=500):
+    """Понятная страница ошибки с кнопкой возврата (вместо пустого экрана)."""
+    body = ('<html><head><meta charset="utf-8"><title>Ошибка</title></head>'
+            '<body style="font-family:Segoe UI,Arial,sans-serif;padding:40px">'
+            '<h2 style="color:#b00">&#9888; Ошибка</h2><p>%s</p>'
+            '<p><a href="/" style="display:inline-block;padding:8px 18px;'
+            'background:#2e7d32;color:#fff;border-radius:6px;'
+            'text-decoration:none">&#127968; На главную</a>&nbsp;'
+            '<a href="javascript:history.back()" style="display:inline-block;'
+            'padding:8px 18px;background:#607d8b;color:#fff;border-radius:6px;'
+            'text-decoration:none">&#8592; Назад</a></p></body></html>' % msg)
+    return body, code
+
+
 @app.after_request
 def _back_header(resp):
+    # Печатные формы в настольном режиме отдают JSON для fetch() из страницы —
+    # не подставляем X-Back, чтобы cookie предыдущей страницы не перезаписывался.
+    if DESKTOP_MODE and request.path.endswith(('/print', '/print61n')):
+        return resp
     if resp.status_code == 200 and 'X-Back' not in resp.headers:
         back = request.cookies.get('_back')
         if back and back != request.path and not back.startswith('/static'):
@@ -592,19 +610,29 @@ def priemka_delete():
     return jsonify({'ok': True})
 
 
+@app.errorhandler(404)
+def _err404(e):
+    return _error_page("Страница или документ не найдены.", 404)
+
+
+@app.errorhandler(500)
+def _err500(e):
+    return _error_page("Внутренняя ошибка программы: %s" % e, 500)
+
+
 @app.route('/dokument/priemka/<int:pid>/print')
 def priemka_print(pid):
     d = _db()
     item = next((p for p in d['documents']['priemki'] if p['id'] == pid), None)
     if item is None:
-        return "Приёмка не найдена", 404
+        return _error_page("Приёмка №%s не найдена." % pid, 404)
     os.makedirs(EXPORT_DIR, exist_ok=True)
     fname = 'priemka_%s_%s.xlsx' % (pid, uuid.uuid4().hex[:8])
     out = os.path.join(EXPORT_DIR, fname)
     try:
         build_priemka_xlsx(item, d['constants'], d['catalogs'], out)
     except Exception as e:
-        return "Ошибка формирования печатной формы: %s" % e, 500
+        return _error_page("Ошибка формирования печатной формы: %s" % e)
     # В настольном режиме (без браузера) предлагаем пользователю путь для
     # сохранения через диалог «Сохранить как…»; при отмене — папка программы.
     if DESKTOP_MODE:
@@ -621,7 +649,9 @@ def priemka_print(pid):
             os.startfile(target)  # Windows: открыть в Excel/LibreOffice
         except Exception:
             pass
-        return jsonify({'ok': True, 'file': target})
+        resp = jsonify({'ok': True, 'file': target})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     return send_file(out, as_attachment=True,
                      download_name='Приемка_форма0510452.xlsx')
 
@@ -633,14 +663,14 @@ def priemka_print_61n(pid):
     d = _db()
     item = next((p for p in d['documents']['priemki'] if p['id'] == pid), None)
     if item is None:
-        return "Приёмка не найдена", 404
+        return _error_page("Приёмка №%s не найдена." % pid, 404)
     os.makedirs(EXPORT_DIR, exist_ok=True)
     fname = 'priemka_61n_%s_%s.xlsx' % (pid, uuid.uuid4().hex[:8])
     out = os.path.join(EXPORT_DIR, fname)
     try:
         build_akt_priemki_61n_xlsx(item, d['constants'], out)
     except Exception as e:
-        return "Ошибка формирования акта по форме 61н: %s" % e, 500
+        return _error_page("Ошибка формирования акта по форме 61н: %s" % e)
     if DESKTOP_MODE:
         default_name = 'Акт_приемки_ОКУД0510452_61н_%s.xlsx' % pid
         target = _save_dialog(default_name)  # предложить пользователю путь
@@ -655,7 +685,9 @@ def priemka_print_61n(pid):
             os.startfile(target)  # Windows: открыть в Excel/LibreOffice
         except Exception:
             pass
-        return jsonify({'ok': True, 'file': target})
+        resp = jsonify({'ok': True, 'file': target})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     return send_file(out, as_attachment=True,
                      download_name='Акт_приемки_ОКУД0510452_61н.xlsx')
 
@@ -666,7 +698,7 @@ def priemka_excel(pid):
     d = _db()
     item = next((p for p in d['documents']['priemki'] if p['id'] == pid), None)
     if item is None:
-        return 'Приёмка не найдена', 404
+        return _error_page('Приёмка №%s не найдена.' % pid, 404)
     os.makedirs(EXPORT_DIR, exist_ok=True)
     fname = 'Priemka_excel_%s_%s.xlsx' % (pid, uuid.uuid4().hex[:8])
     out = os.path.join(EXPORT_DIR, fname)
