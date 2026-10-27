@@ -24,6 +24,8 @@ from app.print_form import build_priemka_xlsx
 from app.print_form_61n import build_akt_priemki_61n_xlsx
 from app.excel_export import export_prikaz_xlsx, export_priemka_xlsx
 from app.report_volume import build_volume_report, export_volume_xlsx
+from app.report_nomenclature import (build_nomenclature_report,
+                                     export_nomenclature_xlsx)
 from app import backup as bak
 from version import APP_VERSION, APP_NAME
 
@@ -775,6 +777,56 @@ def otchet_obem_export():
         return jsonify({'ok': True, 'file': saved})
     return send_file(out, as_attachment=True,
                      download_name='Отчет_обем_принятых_товаров.xlsx')
+
+
+# ------------------------ отчёт: количество номенклатуры по поставщикам ----
+@app.route('/otchet/nomenklatura')
+def otchet_nomenklatura():
+    """Отчёт «Количество номенклатуры за период по поставщикам»."""
+    d = _db()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    postavshik = request.args.get('postavshik', '').strip()
+    group_by = request.args.get('group_by', 'dokument').strip()
+    report = build_nomenclature_report(d['documents']['priemki'],
+                                       date_from=date_from, date_to=date_to,
+                                       postavshik=postavshik,
+                                       group_by=group_by)
+    return render_template('otchet_nomenklatura.html', report=report,
+                           date_from=date_from, date_to=date_to,
+                           postavshik=postavshik, group_by=group_by,
+                           postavshiki=d['catalogs']['postavshiki'])
+
+
+@app.route('/otchet/nomenklatura/export')
+def otchet_nomenklatura_export():
+    """Выгрузка отчёта о количестве номенклатуры в XLSX."""
+    d = _db()
+    report = build_nomenclature_report(
+        d['documents']['priemki'],
+        date_from=request.args.get('date_from', '').strip(),
+        date_to=request.args.get('date_to', '').strip(),
+        postavshik=request.args.get('postavshik', '').strip(),
+        group_by=request.args.get('group_by', 'dokument').strip())
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    out = os.path.join(EXPORT_DIR, 'otchet_nomenklatura_%s.xlsx'
+                       % uuid.uuid4().hex[:8])
+    export_nomenclature_xlsx(report, out)
+    if DESKTOP_MODE:
+        saved = os.path.join(EXPORT_DIR,
+                             'Отчет_количество_номенклатуры_по_поставщикам.xlsx')
+        try:
+            import shutil
+            shutil.copyfile(out, saved)
+        except Exception:
+            saved = out
+        try:
+            os.startfile(saved)  # Windows: открыть в редакторе таблиц
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'file': saved})
+    return send_file(out, as_attachment=True,
+                     download_name='Отчет_количество_номенклатуры_по_поставщикам.xlsx')
 
 
 @app.route('/api/constants')

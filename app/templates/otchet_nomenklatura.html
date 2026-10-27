@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Количество номенклатуры по поставщикам — ГКУ КК УСЗН{% endblock %}
+{% block content %}
+<h1>🧾 Количество номенклатуры за период по поставщикам</h1>
+<p class="muted">Формируется на основании документов «Приемка». По каждому поставщику
+(или по каждому документу приёмки) показывается <b>количество позиций номенклатуры</b>
+за выбранный период и их наименования. Уникальная номенклатура считается по коду товара,
+при отсутствии кода — по наименованию.</p>
+
+<div class="card">
+  <form method="get" action="/otchet/nomenklatura" class="cols3" style="align-items:end">
+    <div>
+      <label>Период: с даты приёмки</label>
+      <input type="date" name="date_from" data-date value="{{ date_from }}">
+    </div>
+    <div>
+      <label>По дату включительно</label>
+      <input type="date" name="date_to" data-date value="{{ date_to }}">
+    </div>
+    <div>
+      <label>Поставщик (необязательно)</label>
+      <select name="postavshik">
+        <option value="">— все поставщики —</option>
+        {% for p in postavshiki %}
+        <option value="{{ p.get('kratkoe_naimovanie') or p.get('polnoe_naimovanie','') }}"
+          {% if postavshik == (p.get('kratkoe_naimovanie') or p.get('polnoe_naimovanie','')) %}selected{% endif %}>
+          {{ p.get('kratkoe_naimovanie') or p.get('polnoe_naimovanie','') }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Разрез отчёта</label>
+      <select name="group_by">
+        <option value="dokument" {% if group_by != 'postavshik' %}selected{% endif %}>
+          по документам приёмки</option>
+        <option value="postavshik" {% if group_by == 'postavshik' %}selected{% endif %}>
+          по поставщикам (сводно)</option>
+      </select>
+    </div>
+    <div class="toolbar" style="grid-column:1/-1;margin-top:12px">
+      <button type="submit">Сформировать отчёт</button>
+      <a class="btn btn-green" id="exportBtn"
+         href="/otchet/nomenklatura/export?date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&postavshik={{ postavshik|urlencode }}&group_by={{ group_by|urlencode }}">
+        ⬇ Выгрузить в XLSX</a>
+      <a class="btn btn-gray" href="/otchet/nomenklatura">Сбросить фильтры</a>
+      <span class="muted">Документов в отчёте: {{ report.docs_used }}
+        {% if report.skipped %}(отклонено фильтром: {{ report.skipped }}){% endif %}</span>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if report.lines %}
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px">№</th>
+        <th>Поставщик</th>
+        {% if group_by != 'postavshik' %}
+        <th>№ документа</th>
+        <th>Дата документа</th>
+        {% endif %}
+        <th>Кол-во позиций номенклатуры</th>
+        <th>Наименования номенклатуры</th>
+        <th>Сумма без НДС, руб.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in report.lines %}
+      <tr>
+        <td>{{ l.nom }}</td>
+        <td><b>{{ l.postavshik }}</b></td>
+        {% if group_by != 'postavshik' %}
+        <td>{{ l.dokument }}</td>
+        <td>{{ l.data_doka }}</td>
+        {% endif %}
+        <td style="text-align:center">{{ l.kolichestvo_nom }}</td>
+        <td class="muted">{{ l.nomenklatura }}</td>
+        <td style="text-align:right">{{ l.bez_nds }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="{% if group_by == 'postavshik' %}3{% else %}5{% endif %}"
+            style="text-align:right"><b>ИТОГО строк номенклатуры:</b></td>
+        <td style="text-align:center"><b>{{ report.totals.vsego_strok }}</b></td>
+        <td class="muted">Уникальной номенклатуры: {{ report.totals.unikalnoy }}</td>
+        <td style="text-align:right"><b>{{ report.totals.bez_nds }}</b></td>
+      </tr>
+    </tfoot>
+  </table>
+  {% else %}
+  <p class="muted">Нет данных: по выбранным фильтрам приёмки не найдены.
+  Сформируйте документы «Приемка» или сбросьте фильтры.</p>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// В настольном режиме (без браузера) выгрузка открывает файл в редакторе таблиц
+document.getElementById('exportBtn').addEventListener('click', async function(e){
+  try{
+    const r = await fetch(this.href);
+    const ct = r.headers.get('Content-Type') || '';
+    if (ct.includes('json')) {
+      e.preventDefault();
+      const j = await r.json();
+      if (j.ok) showMsg('Отчёт сохранён и открыт: ' + j.file);
+      else showMsg('Ошибка выгрузки');
+    }
+    // иначе браузер сам скачает XLSX
+  }catch(err){ /* сетевая ошибка — оставляем обычную переход-ссылку */ }
+});
+</script>
+{% endblock %}
