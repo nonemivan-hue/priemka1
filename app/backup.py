@@ -24,7 +24,8 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
-BACKUP_DIR = os.path.join(ROOT_DIR, 'data', 'backups')
+DATA_DIR = os.environ.get('PRIEMKA_DATA_DIR') or os.path.join(ROOT_DIR, 'data')
+BACKUP_DIR = os.path.join(DATA_DIR, 'backups')
 
 SCHEMA_VERSION = 1
 MAX_KEEP = 50          # максимум хранимых автоматических копий

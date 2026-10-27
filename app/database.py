@@ -10,7 +10,10 @@ from datetime import date, datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
-DATA_FILE = os.path.join(ROOT_DIR, 'data', 'db.json')
+# В собранном EXE (PyInstaller) каталог данных задаётся переменной
+# окружения PRIEMKA_DATA_DIR (см. _frozen_bootstrap.py); в исходниках — data/
+DATA_DIR = os.environ.get('PRIEMKA_DATA_DIR') or os.path.join(ROOT_DIR, 'data')
+DATA_FILE = os.path.join(DATA_DIR, 'db.json')
 
 _lock = threading.Lock()
 

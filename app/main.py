@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import sys
 import uuid
 from datetime import date, datetime
 
@@ -26,7 +27,8 @@ from app import backup as bak
 from version import APP_VERSION, APP_NAME
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXPORT_DIR = os.path.join(ROOT_DIR, 'data', 'exports')
+DATA_DIR = os.environ.get('PRIEMKA_DATA_DIR') or os.path.join(ROOT_DIR, 'data')
+EXPORT_DIR = os.path.join(DATA_DIR, 'exports')
 
 app = Flask(__name__)
 
@@ -716,7 +718,10 @@ def api_constants():
 def about_page():
     """О программе и история версий."""
     changelog = ''
-    p = os.path.join(ROOT_DIR, 'CHANGELOG.md')
+    if getattr(sys, 'frozen', False):
+        p = os.path.join(getattr(sys, '_MEIPASS', ROOT_DIR), 'CHANGELOG.md')
+    else:
+        p = os.path.join(ROOT_DIR, 'CHANGELOG.md')
     if os.path.isfile(p):
         with open(p, 'r', encoding='utf-8') as f:
             changelog = f.read()
