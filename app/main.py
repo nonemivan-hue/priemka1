@@ -21,6 +21,7 @@ from app.database import (FIAS_ADDRESS_TEMPLATE, address_to_string, get_db,
                           init_defaults, next_id, save_db)
 from app import internet_loaders as net
 from app.print_form import build_priemka_xlsx
+from app.print_form_61n import build_akt_priemki_61n_xlsx
 from app.excel_export import export_prikaz_xlsx, export_priemka_xlsx
 from app.report_volume import build_volume_report, export_volume_xlsx
 from app import backup as bak
@@ -620,6 +621,37 @@ def priemka_print(pid):
         return jsonify({'ok': True, 'file': saved})
     return send_file(out, as_attachment=True,
                      download_name='Приемка_форма0510452.xlsx')
+
+
+@app.route('/dokument/priemka/<int:pid>/print61n')
+def priemka_print_61n(pid):
+    """Печатная форма «Акт приемки товаров, работ, услуг» (ОКУД 0510452),
+    утверждённая Приказом Минфина России от 15.04.2021 № 61н."""
+    d = _db()
+    item = next((p for p in d['documents']['priemki'] if p['id'] == pid), None)
+    if item is None:
+        return "Приёмка не найдена", 404
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    fname = 'priemka_61n_%s_%s.xlsx' % (pid, uuid.uuid4().hex[:8])
+    out = os.path.join(EXPORT_DIR, fname)
+    try:
+        build_akt_priemki_61n_xlsx(item, d['constants'], out)
+    except Exception as e:
+        return "Ошибка формирования акта по форме 61н: %s" % e, 500
+    if DESKTOP_MODE:
+        saved = os.path.join(EXPORT_DIR, 'Акт_приемки_61н_%s.xlsx' % pid)
+        try:
+            import shutil
+            shutil.copyfile(out, saved)
+        except Exception:
+            saved = out
+        try:
+            os.startfile(saved)  # Windows: открыть в Excel/LibreOffice
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'file': saved})
+    return send_file(out, as_attachment=True,
+                     download_name='Акт_приемки_ОКУД0510452_61н.xlsx')
 
 
 @app.route('/dokument/priemka/<int:pid>/excel')

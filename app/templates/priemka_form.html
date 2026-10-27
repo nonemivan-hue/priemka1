@@ -90,6 +90,7 @@
 
   <button onclick="saveDoc()">💾 Сохранить приёмку</button>
   {% if item %}<button type="button" onclick="xcl('/dokument/priemka/{{item.id}}/excel',this,'Приемка_{{item.id}}.xlsx')">📤 В Excel</button>{% endif %}
+  {% if item %}<button type="button" class="btn btn-green" onclick="prt61({{item.id}},this)" title="Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина России от 15.04.2021 № 61н">📄 Акт по форме 61н</button>{% endif %}
   <button type="button" onclick="goBack()">← Назад</button>
   <a class="btn btn-gray" href="/dokument/priemka">К списку приёмок</a>
 </div>
@@ -123,6 +124,28 @@ async function xcl(url,btn,fname){
       alert('Ошибка: '+await r.text());
     }
   }catch(e){alert('Ошибка выгрузки в Excel: '+e);}
+  btn.disabled=false; btn.textContent=t0;
+}
+// Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина
+// России от 15.04.2021 № 61н — альтернативная печатная форма
+async function prt61(id,btn){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Формирование…';
+  try{
+    const r=await fetch('/dokument/priemka/'+id+'/print61n');
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Акт по форме 61н сохранён:\n'+j.file):'Ошибка формирования акта');
+    } else if(r.ok){
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='Акт_приемки_ОКУД0510452_61н.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      alert('Ошибка: '+await r.text());
+    }
+  }catch(e){alert('Ошибка печати: '+e);}
   btn.disabled=false; btn.textContent=t0;
 }
 </script>
