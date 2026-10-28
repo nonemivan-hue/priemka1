@@ -68,7 +68,7 @@
     <td>{{p.get('osnovanie_vid','')}} №{{p.get('osnovanie_nom','')}} от {{p.get('osnovanie_data','')}}</td>
     <td>{{ '%.2f'|format(p.get('itog',0) or 0) }}</td>
     <td><button class="btn" style="padding:3px 10px;font-size:12px" onclick="prt({{p.id}},this)">🖨 Печатная форма</button>
-        <button class="btn btn-green" style="padding:3px 10px;font-size:12px" onclick="prt61({{p.id}},this)" title="Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина России от 15.04.2021 № 61н">📄 Акт 61н</button></td>
+        <button class="btn btn-green" style="padding:3px 10px;font-size:12px" onclick="prt61({{p.id}},this)" title="Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина России от 15.04.2021 № 61н">📄 Акт 61н</button> <button class="btn btn-green" style="padding:3px 10px;font-size:12px" onclick="prtw({{p.id}},this)" title="Выгрузка в Word — акт приемочной комиссии по образцу «Акт приемки оказанных услуг, результатов отдельного этапа исполнения контракта»">📝 Word</button></td>
   </tr>
   {% endfor %}</table>
 </div>
@@ -111,6 +111,26 @@ async function prt(id,btn){
 }
 // Акт приемки товаров, работ, услуг (ОКУД 0510452), утв. Приказом Минфина
 // России от 15.04.2021 № 61н — альтернативная печатная форма
+// Выгрузка акта приемки в Word (.docx) — по образцу RTF
+async function prtw(id,btn){
+  btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Формирование…';
+  try{
+    const r=await fetch('/dokument/priemka/'+id+'/word');
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('application/json')>=0){
+      const j=await r.json();
+      alert(j.ok?('Акт Word сохранён:\n'+j.file):'Ошибка формирования акта Word');
+    } else {
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='Акт_приемки_Word.docx';
+      document.body.appendChild(a); a.click(); a.remove();
+      if(!r.ok){setTimeout(()=>location.href='/',1500);} // страховка: возврат на главную
+    }
+  }catch(e){alert('Ошибка печати: '+e+'\nНажмите ОК и используйте кнопку «Назад».');}
+  btn.disabled=false; btn.textContent=t0;
+}
 async function prt61(id,btn){
   btn.disabled=true; const t0=btn.textContent; btn.textContent='⏳ Формирование…';
   try{

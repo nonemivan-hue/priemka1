@@ -22,6 +22,7 @@ from app.database import (FIAS_ADDRESS_TEMPLATE, address_to_string, get_db,
 from app import internet_loaders as net
 from app.print_form import build_priemka_xlsx
 from app.print_form_61n import build_akt_priemki_61n_xlsx
+from app.print_form_word import build_akt_priemki_docx
 from app.excel_export import export_prikaz_xlsx, export_priemka_xlsx
 from app.report_volume import build_volume_report, export_volume_xlsx
 from app.report_nomenclature import (build_nomenclature_report,
@@ -705,6 +706,45 @@ def priemka_print_61n(pid):
         return resp
     return send_file(out, as_attachment=True,
                      download_name='Акт_приемки_ОКУД0510452_61н.xlsx')
+
+
+@app.route('/dokument/priemka/<int:pid>/word')
+def priemka_word(pid):
+    """Выгрузка документа «Приёмка» в Word (.docx) — акт приемочной комиссии
+    по образцу «Акт приемки оказанных услуг, результатов отдельного этапа
+    исполнения контракта»."""
+    d = _db()
+    item = next((p for p in d['documents']['priemki'] if p['id'] == pid), None)
+    if item is None:
+        return _error_page("Приёмка №%s не найдена." % pid, 404)
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    fname = 'priemka_word_%s_%s.docx' % (pid, uuid.uuid4().hex[:8])
+    out = os.path.join(EXPORT_DIR, fname)
+    consts = dict(d['constants'])
+    consts['_prikazy'] = d['documents'].get('prikazy', [])
+    try:
+        build_akt_priemki_docx(item, consts, out)
+    except Exception as e:
+        return _error_page("Ошибка формирования акта Word: %s" % e)
+    if DESKTOP_MODE:
+        default_name = 'Акт_приемки_Word_%s.docx' % (item.get('номер') or pid)
+        target = _save_dialog(default_name)  # предложить пользователю путь
+        if not target:
+            target = os.path.join(EXPORT_DIR, default_name)
+        try:
+            import shutil
+            shutil.copyfile(out, target)
+        except Exception:
+            target = out
+        try:
+            os.startfile(target)  # Windows: открыть в Word/LibreOffice
+        except Exception:
+            pass
+        resp = jsonify({'ok': True, 'file': target})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    return send_file(out, as_attachment=True,
+                     download_name='Акт_приемки_Word.docx')
 
 
 @app.route('/dokument/priemka/<int:pid>/excel')
