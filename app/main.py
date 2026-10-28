@@ -479,6 +479,10 @@ def prikaz_save():
         'nanimovanie': request.form.get('nanimovanie', ''),
         'predsedatel': predsedatel,
         'chleny': [m for m in members if m],
+        # галка «Не действующий»: форма отправляет hidden-поле (всегда '0') и
+        # чекбокс ('1', только при установленной галке) с одним именем —
+        # недействующим приказ считается, если среди значений есть '1'.
+        'ne_deystvuyushchiy': '1' in request.form.getlist('ne_deystvuyushchiy'),
     }
     if pid:
         items[[i['id'] for i in items].index(pid)] = item

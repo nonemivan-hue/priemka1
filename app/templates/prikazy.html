@@ -7,14 +7,15 @@
 </div>
 <div class="card" style="overflow-x:auto">
 <table>
-<tr><th>№</th><th>Дата</th><th>Наименование комиссии</th><th>Председатель</th><th>Члены комиссии</th><th></th></tr>
+<tr><th>№</th><th>Дата</th><th>Наименование комиссии</th><th>Председатель</th><th>Члены комиссии</th><th>Статус</th><th></th></tr>
 {% for p in items %}
-<tr>
+<tr{% if p.get('ne_deystvuyushchiy') %} style="color:#999;background:#faf3f3"{% endif %}>
   <td><a href="/dokument/prikaz/{{p.id}}">{{p.nomer}}</a></td>
   <td>{{p.data}}</td>
   <td>{{p.nanimovanie}}</td>
   <td>{{p.predsedatel}}</td>
   <td>{{p.chleny|join('; ')}}</td>
+  <td>{% if p.get('ne_deystvuyushchiy') %}<span title="Не предлагается в документах «Приемка»">⛔ не действующий</span>{% else %}✅ действующий{% endif %}</td>
   <td nowrap>
     <a class="btn" style="padding:3px 10px;font-size:12px" href="/dokument/prikaz/{{p.id}}">✏ Изменить</a>
     <button class="btn" style="padding:3px 10px;font-size:12px" onclick="xcl('/dokument/prikaz/{{p.id}}/excel',this,'Prikaz_{{p.id}}.xlsx')">📤 В Excel</button>
@@ -22,7 +23,7 @@
   </td>
 </tr>
 {% else %}
-<tr><td colspan="6" class="muted">Приказов пока нет. Создайте первый приказ комиссии.</td></tr>
+<tr><td colspan="7" class="muted">Приказов пока нет. Создайте первый приказ комиссии.</td></tr>
 {% endfor %}
 </table>
 </div>

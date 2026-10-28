@@ -38,6 +38,12 @@
     </div>
   </fieldset>
 
+  <label style="display:inline-block;font-size:14px;margin:6px 0" title="Недействующий приказ не отображается в списке при создании документа «Приемка»">
+    <input type="hidden" name="ne_deystvuyushchiy" value="0">
+    <input type="checkbox" name="ne_deystvuyushchiy" value="1" style="width:auto"
+      {% if item and item.get('ne_deystvuyushchiy') %}checked{% endif %}>
+    ⛔ Не действующий приказ (не будет предлагаться в документах «Приемка»)</label><br>
+
   <button type="submit">💾 Сохранить приказ</button>
   {% if item %}<button type="button" onclick="xcl('/dokument/prikaz/{{item.id}}/excel',this,'Prikaz_{{item.id}}.xlsx')">📤 В Excel</button>{% endif %}
   <button type="button" onclick="goBack()">← Назад</button>

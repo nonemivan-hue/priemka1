@@ -18,9 +18,14 @@
           <option {% if item and item.get('dok_osnovanie_vid')==v['наименование'] %}selected{% endif %}>{{v['наименование']}}</option>
         {% endfor %}</select></div>
       <div><label>№ приказа комиссии</label>
+        {# не действующие приказы скрыты; недействующий приказ, выбранный в
+           сохранённом ранее документе, остаётся доступным для просмотра #}
+        {% set cur_pid = item.get('prikaz_id') if item else none %}
         <select id="f_prikaz_id"><option value="">— выберите приказ —</option>
           {% for p in db.documents.pri_kazy_comissii %}
-          <option value="{{p.id}}" {% if item and item.get('prikaz_id')==p.id %}selected{% endif %}>№{{p.nomer}} от {{p.data}} — {{p.nanimovanie}}</option>
+          {% if not p.get('ne_deystvuyushchiy') or p.id == cur_pid %}
+          <option value="{{p.id}}" {% if item and item.get('prikaz_id')==p.id %}selected{% endif %}>№{{p.nomer}} от {{p.data}} — {{p.nanimovanie}}{% if p.get('ne_deystvuyushchiy') %} (не действующий){% endif %}</option>
+          {% endif %}
           {% endfor %}</select></div>
       <div><label>Дата приказа</label><input id="f_dok_osn_data" type="date" value="{{item.get('dok_osnovanie_data','') if item else ''}}" data-date></div>
     </div>
@@ -173,7 +178,11 @@ async function prt61(id,btn){
 const NOM = {{ db.catalogs.nomenklatura|tojson }};
 const POSTAVSHIKI = {{ db.catalogs.postavshiki|tojson }};
 const NDS = {{ db.catalogs.stavki_nds|tojson }};
-const PRIKAZY = {{ db.documents.pri_kazy_comissii|tojson }};
+// id приказа, выбранного в уже сохранённом документе (для отображения не действующего приказа)
+var _itemPrikazId = null;
+{% if item and item.get('prikaz_id') %}_itemPrikazId = {{item.get('prikaz_id')}};{% endif %}
+const PRIKAZY = ({{ db.documents.pri_kazy_comissii|tojson }})
+  .filter(p=>!p.ne_deystvuyushchiy || p.id===_itemPrikazId); // не действующие — недоступны для выбора
 const SOTR = {{ db.catalogs.sotrudniki|tojson }};
 const ITEM = {{ (item|tojson) if item else 'null' }};
 
