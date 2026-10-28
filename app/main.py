@@ -551,17 +551,46 @@ def priemki_list():
     return render_template('priemki.html', items=d['documents']['priemki'])
 
 
-@app.route('/dokument/priemka/new')
-def priemka_new():
-    return _priemka_form(None)
-
-
 @app.route('/dokument/priemka/<int:pid>')
 def priemka_edit(pid):
     d = _db()
     item = next((p for p in d['documents']['priemki'] if p['id'] == pid), None)
     if item is None:
         return "Приёмка не найдена", 404
+    return _priemka_form(item)
+
+
+def _priemka_next_nomer(d, data_doc=None):
+    """Автоматическая нумерация приёмки в рамках года: max(номер)+1.
+
+    Год берётся из даты документа (по умолчанию — сегодня). Номера,
+    введённые пользователем вручную (например «12-А»), игнорируются —
+    учитываются только целочисленные номера документов за этот год.
+    """
+    yy = (data_doc or datetime.now().strftime('%d.%m.%Y'))[-4:]
+    nums = []
+    for p in d['documents']['priemki']:
+        if str(p.get('дата', '')).endswith('.' + yy):
+            try:
+                nums.append(int(str(p.get('номер', '')).strip()))
+            except (TypeError, ValueError):
+                pass
+    return str(max(nums) + 1) if nums else '1'
+
+
+@app.route('/dokument/priemka/next_nomer')
+def priemka_next_nomer():
+    """Подсказка автонумерации для формы (обновляется при смене даты)."""
+    return jsonify({'nomer': _priemka_next_nomer(_db(),
+                    _norm_date(request.args.get('data', '')))})
+
+
+@app.route('/dokument/priemka/new')
+def priemka_new():
+    d = _db()
+    today = datetime.now().strftime("%d.%m.%Y")
+    nomer = request.args.get('nomer') or _priemka_next_nomer(d, today)
+    item = {'номер': nomer, 'дата': today}
     return _priemka_form(item)
 
 
@@ -583,6 +612,16 @@ def priemka_save():
     for k in ['дата', 'dok_osnovanie_data', 'osnovanie_data']:
         if k in payload:
             payload[k] = _norm_date(payload[k])
+    # автонумерация в рамках года: если номер не задан («б/н»/пусто) —
+    # подставляется следующий номер за год документа; пользователь может
+    # задать номер вручную, тогда он сохраняется как есть
+    nom_s = str(payload.get('номер', '') or '').strip()
+    if nom_s in ('', 'б/н'):
+        data_doc = payload.get('дата') or ''
+        if not re.match(r'^\d{2}\.\d{2}\.\d{4}$', data_doc):
+            data_doc = datetime.now().strftime('%d.%m.%Y')
+            payload['дата'] = data_doc      # пустая дата акта — сегодняшняя
+        payload['номер'] = _priemka_next_nomer(d, data_doc)
     # раздел 4: данные номенклатуры всегда берутся из справочника
     # (сотрудник вносит только количество и цену); ключ — код + наименование
     nom = {}

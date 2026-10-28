@@ -8,7 +8,7 @@
 <div class="card">
   <fieldset><legend>Шапка документа</legend>
     <div class="cols3">
-      <div><label>№ акта приемки</label><input id="f_nomer" value="{{item.get('номер','б/н') if item else 'б/н'}}"></div>
+      <div><label>№ акта приемки <span class="muted" title="Номер подставляется автоматически в рамках года; можно изменить вручную">(авто, можно менять)</span></label><input id="f_nomer" value="{{item.get('номер','б/н') if item else 'б/н'}}"></div>
       <div><label>Дата акта</label><input id="f_data" type="date" value="{{item.get('дата','') if item else ''}}" data-date></div>
       <div><label>Идентификатор госконтракта (ИКЗ)</label><input id="f_ikz" value="{{item.get('ikz','') if item else ''}}"></div>
     </div>
@@ -216,6 +216,19 @@ document.getElementById('f_prikaz_id').addEventListener('change',function(){
         var m=/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec(p.data||'');
         if(di)di.value=m?(m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2)):'';}
 });
+
+// автонумерация акта в рамках года: при смене даты в новом документе
+// (или пока номер не задан пользователем) подставляется следующий номер;
+// пользователь всегда может ввести свой номер вручную — он сохраняется
+let NOMER_TOUCHED = !!(ITEM && ITEM['номер'] && String(ITEM['номер'])!=='б/н');
+document.getElementById('f_nomer').addEventListener('input',function(){NOMER_TOUCHED=true;});
+document.getElementById('f_data').addEventListener('change',function(){
+  if(NOMER_TOUCHED)return;
+  fetch('/dokument/priemka/next_nomer?data='+encodeURIComponent(this.value||''))
+    .then(r=>r.json()).then(j=>{if(j&&j.nomer)document.getElementById('f_nomer').value=j.nomer;})
+    .catch(function(){});
+});
+
 
 let POZ = (ITEM && ITEM.pozicii) ? ITEM.pozicii.map(p=>({...p})) : [];
 
