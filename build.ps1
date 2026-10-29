@@ -34,6 +34,16 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { Write-Host '[X] Не удалось установить PyInstaller.' -ForegroundColor Red; exit 1 }
 }
 
+# Зависимости приложения (flask, openpyxl, python-docx и др.) должны быть
+# установлены — иначе PyInstaller просто не включит недостающие модули в EXE.
+Write-Host '[*] Проверяю зависимости (requirements.txt)...'
+& $py -c "import flask, openpyxl, docx" *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host '[!] Недостающие зависимости. Устанавливаю из requirements.txt...' -ForegroundColor Yellow
+    & $py -m pip install -r requirements.txt
+    if ($LASTEXITCODE -ne 0) { Write-Host '[X] Не удалось установить зависимости.' -ForegroundColor Red; exit 1 }
+}
+
 Write-Host '[*] Запускаю сборку...'
 & $py -m PyInstaller @common
 if ($LASTEXITCODE -ne 0) {

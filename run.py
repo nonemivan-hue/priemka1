@@ -103,6 +103,12 @@ def run_desktop():
         if getattr(real, 'name', None):  # не найден вложенный модуль (не сам desktop.py)
             print('В desktop.py не найден модуль "%s".' % real.name)
             print('Установите зависимости: python -m pip install -r requirements.txt')
+            # Быстрая помощь: часто отсутствует один пакет (например, docx
+            # для кнопки «Word» ставится пакетом python-docx).
+            _quick = {'docx': 'python-docx'}
+            if real.name in _quick:
+                print('Или установите только его: python -m pip install %s'
+                      % _quick[real.name])
             print('Подробности: %s' % real)
         else:
             print('Не найден файл desktop.py в папке программы (%s).' % _BASE_DIR)

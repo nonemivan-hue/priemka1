@@ -33,6 +33,13 @@ a = Analysis(
         'webview.platforms.edgechromium',
         'webview.platforms.mshtml',
         'clr',
+        # выгрузка в Word (кнопка «📝 Word», app/print_form_word.py)
+        'docx',
+        'docx.oxml',
+        'docx.oxml.ns',
+        'docx.enum.text',
+        'docx.enum.table',
+        'docx.shared',
     ],
     hookspath=[],
     hooksconfig={},
