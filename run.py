@@ -12,7 +12,27 @@
     --port <N>               — порт сервера
 Если аргументы указаны явно — запрос не показывается.
 """
+import os
 import sys
+
+# Программа запускается строго из своей папки: desktop.py, app/ и version.py
+# лежат рядом с run.py. Если запустить «python E:\priemka1-main\run.py» из
+# другой директории (например, из C:\Users\Иван), Python не найдёт модули —
+# добавляем папку run.py в sys.path до импортов.
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _BASE_DIR not in sys.path:
+    sys.path.insert(0, _BASE_DIR)
+try:
+    os.chdir(_BASE_DIR)  # данные (data/db.json) также ищутся в папке программы
+except OSError:
+    pass
+
+
+def _real_error(e):
+    """Возвращает исходную причину ImportError (скрытые модулем-запускчиком)."""
+    while getattr(e, '__cause__', None) is not None:
+        e = e.__cause__
+    return e
 
 
 def _cli_host_port(default_host, default_port):
@@ -78,8 +98,16 @@ def run_server():
 def run_desktop():
     try:
         import desktop
-    except ImportError:
-        print('Не найден модуль desktop.py')
+    except ImportError as e:
+        real = _real_error(e)
+        if getattr(real, 'name', None):  # не найден вложенный модуль (не сам desktop.py)
+            print('В desktop.py не найден модуль "%s".' % real.name)
+            print('Установите зависимости: python -m pip install -r requirements.txt')
+            print('Подробности: %s' % real)
+        else:
+            print('Не найден файл desktop.py в папке программы (%s).' % _BASE_DIR)
+            print('Проверьте целостность архива/клонирования или запустите из корня проекта.')
+        print('Можно запустить режим сервера: python run.py --server')
         sys.exit(1)
     try:
         import webview  # noqa: F401
