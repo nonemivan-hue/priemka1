@@ -235,8 +235,11 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     _set(ws1, 'DO6', god2)  # только последние 2 цифры года (формат «20__ г.»)
     # Номер акта
     _set(ws1, 'CI8', doc.get('номер', 'б/н'))
-    _set(ws1, 'ER32', doc.get('номер', 'б/н'))
-    _set(ws1, 'ER33', dt_act)
+    # Номер акта / документ об отгрузке: ER32 — № документа об отгрузке,
+    # ER33 — его дата (если не указан — поля остаются пустыми)
+    _set(ws1, 'ER32', doc.get('otgruzka_nom', ''))
+    dt_otg = _parse_date(doc.get('otgruzka_data'))
+    _set(ws1, 'ER33', dt_otg if dt_otg else '')
     # Дата акта (строка "от __ _______ 20__ г.")
     _set(ws1, 'BW11', den)
     _set(ws1, 'CB11', mesyac)

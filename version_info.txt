@@ -9,8 +9,8 @@ VSVersionInfo(
     StringFileInfo([StringTable('041904b0', [
       StringStruct('CompanyName', 'ГКУ КК УСЗН'),
       StringStruct('FileDescription', 'Приемка товаров — ГКУ КК УСЗН'),
-      StringStruct('ProductVersion', '1.8.6'),
-      StringStruct('FileVersion', '1.8.6')])]),
+      StringStruct('ProductVersion', '1.8.7'),
+      StringStruct('FileVersion', '1.8.7')])]),
     VarFileInfo([VarStruct('Translation', [1049, 1200])])
   ]
 )

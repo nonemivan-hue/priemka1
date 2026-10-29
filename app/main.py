@@ -596,6 +596,12 @@ def priemka_new():
 
 def _priemka_form(item):
     d = _db()
+    if item:
+        item = dict(item)  # не мутируем запись БД
+        # дата в input type="date" требует ISO (yyyy-mm-dd)
+        s = str(item.get('otgruzka_data', '') or '').strip()
+        m = re.match(r'^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$', s)
+        item['otgruzka_data_iso'] = ('%s-%s-%s' % (m.group(3), m.group(2), m.group(1))) if m else ''
     return render_template('priemka_form.html', item=item,
                            db=d,
                            uch=d['constants']['uchrezhdenie'])
@@ -609,7 +615,7 @@ def priemka_save():
     pid = payload.get('id')
     payload['id'] = pid or next_id(items)
     # даты из календаря (type="date", ISO yyyy-mm-dd) — к формату дд.мм.гггг
-    for k in ['дата', 'dok_osnovanie_data', 'osnovanie_data']:
+    for k in ['дата', 'dok_osnovanie_data', 'osnovanie_data', 'otgruzka_data']:
         if k in payload:
             payload[k] = _norm_date(payload[k])
     # автонумерация в рамках года: если номер не задан («б/н»/пусто) —

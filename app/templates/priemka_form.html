@@ -45,6 +45,12 @@
       <div><label>Имя файла PDF приложения</label>
         <input id="f_fail_pdf" value="{{item.get('fail_pdf','') if item else ''}}"></div>
     </div>
+    <div class="cols2">
+      <div><label>№ документа об отгрузке</label>
+        <input id="f_otgruzka_nom" value="{{item.get('otgruzka_nom','') if item else ''}}" title="Номер документа об отгрузке (товара) — попадает в печатную форму, лист стр.1, ячейка ER32"></div>
+      <div><label>Дата документа об отгрузке</label>
+        <input id="f_otgruzka_data" type="date" value="{{item.get('otgruzka_data_iso','') if item else ''}}" title="Дата документа об отгрузке (товара) — попадает в печатную форму, лист стр.1, ячейка ER33"></div>
+    </div>
   </fieldset>
 
   <fieldset><legend>Поставщик (подрядчик) — из справочника</legend>
@@ -266,6 +272,10 @@ document.getElementById('f_prikaz_id').addEventListener('change',function(){
 // пользователь всегда может ввести свой номер вручную — он сохраняется
 let NOMER_TOUCHED = !!(ITEM && ITEM['номер'] && String(ITEM['номер'])!=='б/н');
 document.getElementById('f_nomer').addEventListener('input',function(){NOMER_TOUCHED=true;});
+// дата акта по умолчанию — сегодняшнее число (сотрудник может изменить)
+(function(){var fd=document.getElementById('f_data');
+  if(fd && !fd.value){var t=new Date();
+    fd.value=t.getFullYear()+'-'+('0'+(t.getMonth()+1)).slice(-2)+'-'+('0'+t.getDate()).slice(-2);}})();
 document.getElementById('f_data').addEventListener('change',function(){
   if(NOMER_TOUCHED)return;
   fetch('/dokument/priemka/next_nomer?data='+encodeURIComponent(this.value||''))
@@ -375,6 +385,8 @@ async function saveDoc(){
     osnovanie_nom:document.getElementById('f_osnovanie_nom').value,
     osnovanie_data:document.getElementById('f_osnovanie_data').value,
     dok_otgruzka:document.getElementById('f_dok_otgruzka').value,
+    otgruzka_nom:document.getElementById('f_otgruzka_nom').value,
+    otgruzka_data:document.getElementById('f_otgruzka_data').value,
     fail_pdf:document.getElementById('f_fail_pdf').value,
     adres_zakazchika:document.getElementById('f_adres_zak').value,
     mesto_postavki:document.getElementById('f_mesto_post').value,
