@@ -48,7 +48,7 @@
   </fieldset>
 
   <fieldset><legend>Поставщик (подрядчик) — из справочника</legend>
-    <select id="f_postavshik" onchange="fillPostavshik()">
+    <select id="f_postavshik" onchange="fillPostavshik(false)">
       <option value="">— выберите поставщика —</option>
       {% for s in db.catalogs.postavshiki %}
       <option value="{{s.id}}" {% if item and (item.get('postavshik') or {}).get('id')==s.id %}selected{% endif %}>
@@ -196,15 +196,59 @@ function ndsCoef(s){
   const m=s.match(/(\d+[.,]?\d*)/); return m?parseFloat(m[1].replace(',','.'))/100:0;
 }
 
-function fillPostavshik(){
+// поля «Основание приемки» и ИКЗ берутся из справочника поставщика;
+// baseTouched — пользователь редактировал их вручную: до первого изменения
+// поля перезаполняются при каждой смене поставщика (в т.ч. очистка, если у
+// нового поставщика данных нет). При открытии сохранённого документа поля
+// считаются заполненными — автонезамена не трогает введённые значения.
+let BASE_TOUCHED = false;
+['f_osnovanie_nom','f_osnovanie_data','f_ikz'].forEach(function(i){
+  var el=document.getElementById(i);
+  if(el)el.addEventListener('input',function(){BASE_TOUCHED=true;});
+});
+
+function _normDate(s){
+  s=(s||'').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  var m=/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec(s);
+  return m?(m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2)):'';
+}
+
+function supplierFillBaseFields(force){
+  const id=document.getElementById('f_postavshik').value;
+  const p=POSTAVSHIKI.find(x=>String(x.id)===id);
+  const fNom=document.getElementById('f_osnovanie_nom'),
+        fDat=document.getElementById('f_osnovanie_data'),
+        fIkz=document.getElementById('f_ikz');
+  if(!p)return;
+  // принудительная перезаполнение при СМЕНЕ поставщика (force=true), либо
+  // первичная автоподстановка пустых полей при открытии формы
+  if(force || !BASE_TOUCHED){
+    fNom.value=p.dogovor||'';
+    fDat.value=_normDate(p.data_zakl);
+    fIkz.value=p.ikz||'';
+  }
+}
+
+function fillPostavshik(firstCall){
   const id=document.getElementById('f_postavshik').value;
   const p=POSTAVSHIKI.find(x=>String(x.id)===id);
   document.getElementById('postavshikInfo').textContent =
     p ? (p.kratkoe_naimovanie+' | '+p.adres+' | ОГРН '+p.ogrn+' | ИНН '+p.inn+(p.kpp?' | КПП '+p.kpp:'')+' | '+p.dogovor):'';
-  if(p && !document.getElementById('f_osnovanie_nom').value){
-    document.getElementById('f_osnovanie_nom').value=p.dogovor||'';
-    document.getElementById('f_osnovanie_data').value=(/^\d{4}-\d{2}-\d{2}$/.test(p.data_zakl||'')?p.data_zakl:(function(){var m=/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec(p.data_zakl||'');return m?m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2):'';})());
-    document.getElementById('f_ikz').value=p.ikz||'';
+  if(firstCall){
+    // при открытии формы — только дозаполнение пустых полей,
+    // сохранённые пользователем значения не трогаем
+    if(p){
+      if(!document.getElementById('f_osnovanie_nom').value)
+        document.getElementById('f_osnovanie_nom').value=p.dogovor||'';
+      if(!document.getElementById('f_osnovanie_data').value)
+        document.getElementById('f_osnovanie_data').value=_normDate(p.data_zakl);
+      if(!document.getElementById('f_ikz').value)
+        document.getElementById('f_ikz').value=p.ikz||'';
+    }
+  }else{
+    // смена поставщика — перезаполняем № основания, дату основания и ИКЗ
+    supplierFillBaseFields(true);
   }
 }
 
@@ -360,7 +404,7 @@ if(ITEM){
     document.getElementById('f_resp').value=ITEM.otvetstvenny.fio||'';
   }
 }
-fillPostavshik();
+fillPostavshik(true);
 renderPoz();
 </script>
 {% endblock %}
