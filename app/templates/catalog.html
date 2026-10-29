@@ -29,6 +29,18 @@
 <table id="tbl"></table>
 </div>
 <p class="muted">Двойной щелчок по ячейке — редактирование. Кнопки в конце строки: ❌ удалить. Для массового удаления отметьте записи галочками слева и нажмите «🗑 Удалить выбранные» (есть режим «Выбрать все»).</p>
+
+<!-- Модальное окно добавления записи в справочник -->
+<div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:flex-start;justify-content:center;overflow:auto">
+  <div style="background:#fff;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.3);max-width:640px;width:92%;margin:6vh auto;padding:18px 20px">
+    <h2 style="margin-top:0" id="addModalTitle">Добавление записи</h2>
+    <div id="addModalBody" style="display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow:auto"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-gray" type="button" onclick="closeAddModal()">Отмена</button>
+      <button type="button" onclick="submitAddModal()" style="background:#2e7d32;color:#fff;border:0;border-radius:6px;padding:8px 16px;cursor:pointer">➕ Добавить</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -156,19 +168,61 @@ async function saveCell(i,key,input){
   await postJSON('/catalog/'+CATALOG+'/update', isSimple?{_index:i,value:val}:{_index:i,...(isSimple?{}:ITEMS[i])});
   showMsg('Сохранено');
 }
-async function addRow(){
-  let row = {};
+// ===== Модальное окно добавления записи =====
+function openAddModal(){
+  const m = document.getElementById('addModal'), body = document.getElementById('addModalBody');
+  document.getElementById('addModalTitle').textContent = 'Добавление записи в справочник «' + (document.querySelector('h1')||{}).textContent.replace(/^Справочник\s*«|»$/g,'').trim() + '»';
+  let html = '';
   if(isSimple){
-    const v = prompt('Новая ставка НДС:'); if(!v)return;
-    ITEMS.push(v);
-    await postJSON('/catalog/'+CATALOG+'/add',{value:v});
+    html += '<label><b>Ставка НДС</b><br><input id="am_value" style="width:100%;padding:6px" placeholder="напр. 20%"></label>';
   }else{
-    schema.forEach(s=>row[s[0]]='');
-    ITEMS.push(row);
-    await postJSON('/catalog/'+CATALOG+'/add',row);
+    schema.forEach(s=>{
+      const key=s[0], lab=s[1], kind=s[2];
+      if(kind){
+        const opts = refOptions(kind).map(o=>'<option value="'+String(o.v).replace(/"/g,'&quot;')+'">'+o.t.replace(/</g,'&lt;')+'</option>').join('');
+        html += '<label><b>'+lab+'</b><br><select id="am_'+key+'" data-kind="'+kind+'" onchange="modalRefChanged(this)" style="width:100%;padding:6px">'
+             + '<option value="">— не выбрано —</option>'+opts+'</select></label>';
+      }else{
+        html += '<label><b>'+lab+'</b><br><input id="am_'+key+'" style="width:100%;padding:6px"></label>';
+      }
+    });
   }
-  render(); showMsg('Запись добавлена');
+  body.innerHTML = html;
+  m.style.display = 'flex';
+  const first = body.querySelector('input,select'); if(first) first.focus();
 }
+function modalRefChanged(sel){
+  // автозаполнение связанных полей (страна -> наименование, ОКЕИ -> обозначение)
+  const opt = refOptions(sel.dataset.kind).find(o=>String(o.v)===sel.value);
+  if(opt && opt.extra) for(const k in opt.extra){ const el=document.getElementById('am_'+k); if(el) el.value = opt.extra[k]||''; }
+}
+function closeAddModal(){ document.getElementById('addModal').style.display='none'; }
+async function submitAddModal(){
+  let payload;
+  if(isSimple){
+    const v = (document.getElementById('am_value').value||'').trim();
+    if(!v){ showMsg('Укажите ставку НДС'); return; }
+    payload = {value:v};
+  }else{
+    payload = {};
+    schema.forEach(s=>{
+      const el = document.getElementById('am_'+s[0]);
+      payload[s[0]] = el ? (el.value||'').trim() : '';
+    });
+    if(!Object.values(payload).some(v=>v!=='')){ showMsg('Заполните хотя бы одно поле'); return; }
+  }
+  const r = await fetch('/catalog/'+CATALOG+'/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  let j; try{ j = await r.json(); }catch(e){ j = {ok:false,msg:'Ошибка сервера'}; }
+  if(j.ok===false){ showMsg(j.msg||'Ошибка добавления'); return; }
+  // обновляем локальный список из ответа сервера (если вернул) или перечитываем страницу данных
+  if(isSimple){ ITEMS.push(payload.value); }
+  else{
+    const row={}; schema.forEach(s=>row[s[0]]=payload[s[0]]||''); ITEMS.push(row);
+  }
+  closeAddModal(); render(); showMsg('Запись добавлена');
+}
+function addRow(){ openAddModal(); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeAddModal(); });
 async function delRow(i){
   if(!confirm('Удалить запись №'+(i+1)+'?'))return;
   await postJSON('/catalog/'+CATALOG+'/delete',{_index:i});
