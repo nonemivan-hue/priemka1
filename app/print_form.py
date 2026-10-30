@@ -13,7 +13,7 @@ from datetime import date, datetime
 
 import openpyxl
 from openpyxl.styles import PatternFill
-from openpyxl.utils import column_index_from_string
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -39,6 +39,40 @@ TEMPLATE_STR1 = _res('Раздел1.xlsx')
 TEMPLATE_STR23 = _res('Остальное.xlsx')
 
 YELLOW = PatternFill('solid', fgColor='FFFFFF00')  # подсветка заполненных полей (жёлтый, как в шаблонах)
+
+# Формат даты документа об отгрузке в текстовой строке «… № … от …» (лист стр.2_3)
+DATE_FMT_Dotted = '%d.%m.%Y'
+
+
+def _fmt_date_dotted(dt):
+    """Дата в виде «дд.мм.гггг» (для составных текстовых строк печатной формы)."""
+    if not dt:
+        return ''
+    if isinstance(dt, str):
+        dt = _parse_date(dt)
+    if not dt:
+        return ''
+    return dt.strftime(DATE_FMT_Dotted)
+
+
+def _otgruzka_doc_text(doc):
+    """Строка о документе об отгрузке для листа «стр.2_3», ячейка Z47:
+
+    «Вид документа об отгрузке + " № " + номер + " от " + дата».
+    Пустые части пропускаются; если вид не выбран — подставляется
+    слово «Документ», чтобы строка читалась корректно.
+    Пример: «Товарная накладная № 12345 от 10.10.2026».
+    """
+    vid = str(doc.get('dok_otgruzka', '') or '').strip() or 'Документ'
+    nom = str(doc.get('otgruzka_nom', '') or '').strip()
+    # дату берём в формате дд.мм.гггг; если поле не заполнено — дата акта
+    data = _fmt_date_dotted(doc.get('otgruzka_data') or doc.get('дата'))
+    s = vid
+    if nom:
+        s += ' № ' + nom
+    if data:
+        s += ' от ' + data
+    return s
 
 
 def _parse_date(value):
@@ -87,9 +121,24 @@ def _set(ws, coord, value, highlight=False):
     """Запись значения в ячейку. Заливки не используются (версия 1.7.0):
     печатная форма формируется программой целиком, жёлтая подсветка
     полей из файлов-примеров удалена."""
-    cell = ws[_anchor(ws, coord)]
-    cell.value = value
-    return cell
+    target = ws[_anchor(ws, coord)]
+    # подстраховка: если координата всё же оказалась внутри слияния
+    # (openpyxl при insert_rows переносит объединённые диапазоны некорректно) —
+    # ищем якорь вручную среди диапазонов того же листа
+    if target.__class__.__name__ == 'MergedCell':
+        from openpyxl.utils.cell import range_boundaries as _rb
+        mc, mr = _rb(coord)[0], _rb(coord)[1]
+        for rng in sorted(ws.merged_cells.ranges,
+                          key=lambda r: (r.max_row - r.min_row) * (r.max_col - r.min_col)):
+            if rng.min_row <= mr <= rng.max_row and rng.min_col <= mc <= rng.max_col:
+                cand = ws['%s%d' % (get_column_letter(rng.min_col), rng.min_row)]
+                if cand.__class__.__name__ != 'MergedCell':
+                    target = cand
+                    break
+    if target.__class__.__name__ == 'MergedCell':
+        raise ValueError('Не удалось найти ячейку для записи: %s' % coord)
+    target.value = value
+    return target
 
 
 # Ячейки, данные из которых убраны по требованию (версия 1.7.x):
@@ -358,8 +407,9 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
             itog += v
     _set(ws23, 'EF%d' % itog_row, itog, highlight=False)
 
-    # Приложение: наименование документа-основания (АКТ...)
-    _set(ws23, 'Z%d' % shift(47), doc.get('dok_otgruzka', ''))
+    # Приложение: документ об отгрузке — в Z47 выводим составную строку
+    # «Вид документа об отгрузке № <номер> от <дата>» (лист стр.2_3).
+    _set(ws23, 'Z%d' % shift(47), _otgruzka_doc_text(doc))
     _set(ws23, 'CV%d' % shift(48), doc.get('fail_pdf', ''))
 
     # Комиссия по приказу
@@ -391,6 +441,18 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     _set(ws23, 'Z%d' % shift(64), god2)
     _set(ws23, 'AA%d' % shift(66), uch.get('rukovoditel_dolzhnost', 'Руководитель'))
     _set(ws23, 'BP%d' % shift(66), uch.get('rukovoditel', ''))
+
+    # Строка 69 листа «стр.2_3» должна дублировать строку 64 (та же дата
+    # второй подписи). В шаблоне здесь были внешние ссылки вида
+    # '=[1]стр.1!BW11' — после сохранения файла они не вычисляются и в
+    # ячейках оставалась пустота/мусор. Копируем фактические значения
+    # строки 64 (значения, а не формулы — чтобы дубликат был виден сразу,
+    # без пересчёта формул в Excel): A69←A64, C69←C64, F69←F64, H69←H64,
+    # W69←W64, Z69←Z64, AC69←AC64.
+    r64, r69 = shift(64), shift(69)
+    for col in ('A', 'C', 'F', 'H', 'W', 'Z', 'AC'):
+        val = ws23[_anchor(ws23, '%s%d' % (col, r64))].value
+        _set(ws23, '%s%d' % (col, r69), val)
 
     # Сохраняем обе части формы (два листа) в одном файле
     ws1.title = 'стр.1'
