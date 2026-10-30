@@ -1,5 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+/* Раздел 4: таблица позиций — поля можно двигать (скроллом и перетаскиванием
+   границ колонок), чтобы вводимые значения всегда были видны целиком */
+.tbl-scroll{overflow-x:auto;resize:horizontal;min-width:200px;max-width:100%;
+  border:1px solid #d5dde6;border-radius:6px;padding:2px;background:#fff;
+  box-shadow:inset 0 0 0 1px #fff}
+.tbl-scroll table{width:auto;min-width:100%}
+#pozTbl{table-layout:auto}
+#pozTbl th,#pozTbl td{white-space:nowrap}
+#pozTbl th{position:relative;cursor:ew-resize;user-select:none}
+#pozTbl th.resizing{opacity:.6}
+#pozTbl th .grip{position:absolute;top:0;right:-3px;width:7px;height:100%;
+  cursor:ew-resize;z-index:2}
+#pozTbl th .grip:hover{background:#7faed6;opacity:.5}
+/* числовые поля — фиксированная ширина, чтобы после запятой было видно
+   не менее двух знаков + поле «Итого с НДС» */
+#pozTbl input.cell-in{width:10ch;min-width:8ch;text-align:right;padding:6px 7px}
+/* суммы — выравнивание по правому краю и ширина не меньше числа с копейками */
+#pozTbl td.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;min-width:11ch}
+#pozTbl td:nth-child(9),#pozTbl td:nth-child(11),#pozTbl td:nth-child(12){min-width:12ch}
+.itog-line{text-align:right;margin-top:8px;font-weight:600}
+.itog-line .num{display:inline-block;min-width:12ch;text-align:right;font-size:15px}
+</style>
 <h1>{% if item %}Приемка № {{item.get('номер','б/н')}} от {{item.get('дата','')}}{% else %}Новая приёмка (ф. 0510452){% endif %}</h1>
 <p class="muted">Печатная форма: «Приложение к распоряжению ректора № 3 от 22.01.2024г.», А4, альбомная.
 Поля, выделенные <span style="background:#fff59a;padding:1px 6px">жёлтым</span>, заполняются пользователем;
@@ -75,13 +98,17 @@
   <fieldset><legend>Раздел 4. Сведения о приемке товаров, работ, услуг — позиции (выбор из справочника «Номенклатура»)</legend>
     <p class="muted">При выборе номенклатуры автоматически заполняются: код товара, наименование, страна происхождения,
       ед. измерения, ставка НДС. Сотрудник вносит только <b>количество</b> и <b>цену</b>.</p>
-    <table id="pozTbl">
-      <tr><th>№</th><th>Номенклатура<br>(выбор из справочника)</th><th>Код товара</th><th>Наименование</th>
-          <th>Страна<br>(код/наим.)</th><th>Ед. изм.<br>(ОКЕИ)</th><th>Кол-во ✏️</th><th>Цена ✏️</th>
-          <th>Сумма без НДС</th><th>Ставка НДС</th><th>Сумма НДС</th><th>Сумма с НДС</th><th></th></tr>
-    </table>
+    {# таблица в wrapper с горизонтальным скроллом: поля можно двигать,
+       чтобы были видны вводимые значения даже на узком экране #}
+    <div class="tbl-scroll">
+      <table id="pozTbl">
+        <tr><th>№</th><th>Номенклатура<br>(выбор из справочника)</th><th>Код товара</th><th>Наименование</th>
+            <th>Страна<br>(код/наим.)</th><th>Ед. изм.<br>(ОКЕИ)</th><th>Кол-во ✏️</th><th>Цена ✏️</th>
+            <th>Сумма без НДС</th><th>Ставка НДС</th><th>Сумма НДС</th><th>Сумма с НДС</th><th></th></tr>
+      </table>
+    </div>
     <button type="button" onclick="addPoz()" style="margin-top:8px">➕ Добавить позицию</button>
-    <div style="text-align:right;margin-top:8px;font-weight:600">Итого с НДС: <span id="itogLbl">0.00</span></div>
+    <div class="itog-line">Итого с НДС: <span id="itogLbl" class="num">0.00</span></div>
   </fieldset>
 
   <fieldset><legend>Комиссия и ответственный исполнитель</legend>
@@ -290,15 +317,29 @@ let POZ = (ITEM && ITEM.pozicii) ? ITEM.pozicii.map(p=>({...p})) : [];
 function nomKey(n){return n.kod_tovara+' | '+n.naimovanie;}
 function findNom(key){return NOM.find(n=>nomKey(n)===key);}
 
+// форматирование денег: всегда два знака после запятой (разделитель — запятая),
+// чтобы в полях «Сумма без НДС», «Сумма НДС», «Сумма с НДС» и «Итого с НДС»
+// дробная часть была видна целиком
+function num(v){const x=parseFloat(String(v==null?'':v).replace(',','.'));return isNaN(x)?0:x;}
+function money(v){return (Math.round(num(v)*100)/100).toFixed(2).replace('.', ',');}
+
+// ---- Раздел 4: ширины колонок можно двигать мышью ----
+// Пользовательские ширины сохраняются в localStorage и применяются при
+// каждой перерисовке таблицы, чтобы введённые значения оставались видимыми.
+const COLW_KEY='priemka_poz_colw';
+let COLW={};
+try{COLW=JSON.parse(localStorage.getItem(COLW_KEY)||'{}')||{};}catch(e){COLW={};}
+function saveColW(){try{localStorage.setItem(COLW_KEY,JSON.stringify(COLW));}catch(e){}}
+
 function renderPoz(){
   const tbl=document.getElementById('pozTbl');
   tbl.innerHTML='<tr><th>№</th><th>Номенклатура (выбор)</th><th>Код товара</th><th>Наименование</th><th>Страна</th>'+
-    '<th>Ед.изм.</th><th>Кол-во</th><th>Цена</th><th>Без НДС</th><th>Ставка НДС</th><th>НДС</th><th>С НДС</th><th></th></tr>';
+    '<th>Ед.изм.</th><th>Кол-во</th><th>Цена</th><th>Сумма без НДС</th><th>Ставка НДС</th><th>Сумма НДС</th><th>Сумма с НДС</th><th></th></tr>';
   let itog=0;
   const nomOpts='<option value="">— выберите номенклатуру —</option>'+
     NOM.map(n=>'<option value="'+esc(nomKey(n))+'">'+esc(n.kod_tovara)+' — '+esc(n.naimovanie)+'</option>').join('');
   POZ.forEach((p,i)=>{
-    const bez=Math.round(((+p.kolichestvo||0)*(+p.cena||0))*100)/100;
+    const bez=Math.round((num(p.kolichestvo)*num(p.cena))*100)/100;
     const nds=Math.round(bez*ndsCoef(p.stavka_nds)*100)/100;
     const snds=Math.round((bez+nds)*100)/100; itog+=snds;
     // если позиция не выбрана из справочника — добавляем её текущее значение отдельным пунктом
@@ -314,20 +355,70 @@ function renderPoz(){
       '<td style="background:#eef2ff">'+esc(p.naimovanie||'')+'</td>'+
       '<td style="background:#eef2ff">'+esc(p.strana_kod||'')+' '+esc(p.strana_name||'')+'</td>'+
       '<td style="background:#eef2ff">'+esc(p.ed_izm||'')+' <span class="muted">('+esc(p.oei_kod||'')+')</span></td>'+
-      '<td><input type="number" step="0.001" inputmode="decimal" maxlength="7" style="width:9ch;background:#fff59a" value="'+esc(p.kolichestvo||'')+'"'+
-        ' oninput="limit7(this)" onchange="setP('+i+',\'kolichestvo\',this.value)" title="до 7 знаков" placeholder="✏️"></td>'+
-      '<td><input type="number" step="0.01" inputmode="decimal" maxlength="7" style="width:11ch;background:#fff59a" value="'+esc(p.cena||'')+'"'+
-        ' oninput="limit7(this)" onchange="setP('+i+',\'cena\',this.value)" title="до 7 знаков" placeholder="✏️"></td>'+
-      '<td>'+bez.toFixed(2)+'</td>'+
+      '<td><input type="text" class="cell-in" inputmode="decimal" style="background:#fff59a" value="'+esc(p.kolichestvo||'')+'"'+
+        ' oninput="limitNum(this)" onchange="onCellNum('+i+',this,\'kolichestvo\')" title="Количество: до 7 цифр, разделитель — запятая или точка" placeholder="✏️"></td>'+
+      '<td><input type="text" class="cell-in" inputmode="decimal" style="background:#fff59a" value="'+esc(p.cena||'')+'"'+
+        ' oninput="limitNum(this)" onchange="onCellNum('+i+',this,\'cena\')" title="Цена: до 7 цифр, после запятой — копейки" placeholder="✏️"></td>'+
+      '<td class="num">'+money(bez)+'</td>'+
       '<td style="background:#eef2ff">'+esc(p.stavka_nds||'')+'</td>'+
-      '<td>'+nds.toFixed(2)+'</td><td><b>'+snds.toFixed(2)+'</b></td>'+
+      '<td class="num">'+money(nds)+'</td>'+
+      '<td class="num"><b>'+money(snds)+'</b></td>'+
       '<td><button class="btn-red" onclick="delPoz('+i+')">❌</button></td>';
     // выделяем выбранный пункт справочника
     const sel=tr.querySelector('select');
     if(selKey)sel.value=selKey;
     tbl.appendChild(tr);
   });
-  document.getElementById('itogLbl').textContent=itog.toFixed(2);
+  document.getElementById('itogLbl').textContent=money(itog);
+  applyColWidths(tbl);
+  addResizeHandles(tbl);
+}
+// применяем сохранённые ширины колонок через colgroup
+function applyColWidths(tbl){
+  const ths=[...tbl.querySelectorAll('tr:first-child th')];
+  let cg=tbl.querySelector('colgroup');
+  if(!cg){cg=document.createElement('colgroup');tbl.insertBefore(cg,tbl.firstChild);}
+  cg.innerHTML='';
+  ths.forEach((th,idx)=>{
+    const c=document.createElement('col');
+    const w=COLW[idx];
+    if(w)c.style.width=w+'px';
+    cg.appendChild(c);
+  });
+}
+// перетаскивание правой границы заголовка — сдвиг (изменение ширины) колонки
+function addResizeHandles(tbl){
+  const cg=tbl.querySelector('colgroup');
+  [...tbl.querySelectorAll('tr:first-child th')].forEach((th,idx)=>{
+    const g=document.createElement('span');
+    g.className='grip'; g.title='Потяните, чтобы изменить ширину колонки (двойной клик — сброс)';
+    th.appendChild(g);
+    g.addEventListener('mousedown',function(ev){
+      ev.preventDefault(); ev.stopPropagation();
+      const startX=ev.clientX, startW=th.getBoundingClientRect().width;
+      th.classList.add('resizing');
+      document.body.style.cursor='ew-resize';
+      let lastW=startW;
+      const mv=function(e){
+        lastW=Math.max(30,Math.round(startW+(e.clientX-startX)));
+        if(cg.children[idx])cg.children[idx].style.width=lastW+'px';
+      };
+      const up=function(){
+        th.classList.remove('resizing');
+        document.body.style.cursor='';
+        document.removeEventListener('mousemove',mv);
+        document.removeEventListener('mouseup',up);
+        COLW[idx]=lastW; saveColW();
+      };
+      document.addEventListener('mousemove',mv);
+      document.addEventListener('mouseup',up);
+    });
+    // двойной клик по границе — вернуть автоматическую ширину колонки
+    g.addEventListener('dblclick',function(ev){
+      ev.preventDefault(); ev.stopPropagation();
+      delete COLW[idx]; saveColW(); renderPoz();
+    });
+  });
 }
 function pickNom(i,key){
   const p=POZ[i];
@@ -341,19 +432,26 @@ function pickNom(i,key){
     nom_deklaracii:n.nom_deklaracii||'',nom_certifikata:n.nom_certifikata||''});
   renderPoz();
 }
-// ограничение полей «Кол-во» и «Цена»: не более 7 цифр (целая часть в приоритете)
-function limit7(inp){
-  const v=inp.value;
-  if(v==='')return;
-  let s=v.replace(',', '.');
-  const m=s.match(/^-?(\d*)(\.\d*)?$/);
+// ограничение полей «Кол-во» и «Цена»: ввод чисел с дробной частью
+// (разделитель — запятая или точка), не более 7 цифр всего (целая часть в
+// приоритете); значение сохраняется ровно таким, каким его видит пользователь
+function limitNum(inp){
+  const raw=inp.value;
+  if(raw==='')return;
+  let s=raw.replace(',', '.');
+  const m=/^-?(\d*)(\.\d*)?/.exec(s);      // отбрасываем всё, что не число
   if(!m){inp.value='';return;}
   let intp=(m[1]||'').slice(0,7);
   let fr=(m[2]||'').slice(1);
   fr=fr.slice(0,Math.max(0,7-intp.length));
-  inp.value=(s.indexOf(',')>=0&&fr)?intp+','+fr:intp+fr;
+  inp.value=((raw.indexOf(',')>=0&&fr)?intp+','+fr:intp+(fr?'.'+fr:''));
+  if(raw.indexOf('-')===0&&intp)inp.value='-'+inp.value;
 }
-function setP(i,k,v){POZ[i][k]=v;renderPoz();}
+function onCellNum(i,inp,key){
+  limitNum(inp);
+  POZ[i][key]=inp.value.trim();
+  renderPoz();
+}
 function delPoz(i){POZ.splice(i,1);renderPoz();}
 function addPoz(){POZ.push({kod_tovara:'',naimovanie:'',strana_kod:'',strana_name:'',oei_kod:'',ed_izm:'',
   kolichestvo:'',cena:'',stavka_nds:'',stavka_nds_text:''});renderPoz();}
@@ -371,7 +469,7 @@ async function saveDoc(){
   const respS=SOTR.find(x=>x.fio===respFio)||{};
   const post=POSTAVSHIKI.find(x=>String(x.id)===document.getElementById('f_postavshik').value)||{};
   let itog=0;
-  POZ.forEach(p=>{const bez=(+p.kolichestvo||0)*(+p.cena||0);const nds=bez*ndsCoef(p.stavka_nds);itog+=bez+nds;});
+  POZ.forEach(p=>{const bez=num(p.kolichestvo)*num(p.cena);const nds=bez*ndsCoef(p.stavka_nds);itog+=bez+nds;});
   const payload={
     id: ITEM?ITEM.id:undefined,
     'номер':document.getElementById('f_nomer').value,
