@@ -237,6 +237,47 @@ def _clone_row_borders(ws, src_row, dst_row):
         d.border = _copy(s.border)
 
 
+def _clone_row_merges(ws, src_row, dst_row):
+    """Воспроизводит объединённые диапазоны строки-образца в новой строке.
+
+    При вставке строк методом сдвига openpyxl не переносит слияния, а
+    новые строки их вообще не имеют — из-за этого дополнительные позиции
+    раздела 4 «расползались» по колонкам (форма сбивалась). Копируем
+    структуру слияний строки 33/34 в новую строку (версия 1.7.3).
+    """
+    ranges = [(rng.min_col, rng.max_col) for rng in ws.merged_cells.ranges
+              if rng.min_row == src_row and rng.max_row == src_row]
+    for min_col, max_col in ranges:
+        if max_col > min_col:
+            try:
+                ws.merge_cells(start_row=dst_row, start_column=min_col,
+                               end_row=dst_row, end_column=max_col)
+            except Exception:
+                pass
+
+
+def _clone_row_format(ws, src_row, dst_row):
+    """Копирует форматирование (шрифт, выравнивание, числовой формат,
+    заливку) ячеек строки-образца в новую строку раздела 4."""
+    from copy import copy as _copy
+    anchor_cols = {}
+    for rng in ws.merged_cells.ranges:
+        if rng.min_row == src_row and rng.max_row == src_row:
+            anchor_cols.setdefault(rng.min_col, rng.max_col)
+    for col in range(_TABLE4_MIN_COL, _TABLE4_MAX_COL + 1):
+        s = ws.cell(row=src_row, column=col)
+        d = ws.cell(row=dst_row, column=col)
+        if d.__class__.__name__ == 'MergedCell':
+            continue
+        if s.__class__.__name__ == 'MergedCell':
+            continue
+        d.font = _copy(s.font)
+        d.alignment = _copy(s.alignment)
+        d.fill = _copy(s.fill)
+        d.protection = _copy(s.protection)
+        d.number_format = s.number_format
+
+
 def _split_date(dt):
     """Возвращает (день, месяц_рус_им., год2цифры) для ячеек формы."""
     months = ['', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
@@ -379,28 +420,45 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     _set(ws23, 'BV23', uch.get('rukovoditel', ''))
 
     # Раздел 4: позиции номенклатуры — добавляем строки копированием шаблона (33-34)
-    template_rows = [33, 34]
     rows = doc.get('pozicii', []) or []
-    import copy as _copy_mod
-    from openpyxl.utils import get_column_letter as _gcl
     n = len(rows)
     needed = max(2, ((n + 1) // 2) * 2)  # чётное число строк блоками по 2
-    if needed > 2:
+    extra = needed - 2
+    if extra > 0:
         # ВНИМАНИЕ: дополнительные строки вставляем МЕТОДОМ СДВИВА
         # (insert_rows), иначе позиции перезаписывали бы строку «Итого»
-        # и нижние разделы (35+). Границы новых строк копируются со
-        # строк-образцов 33/34 — таблицы сохраняют все нарисованные
-        # линии (версия 1.7.2).
+        # и нижние разделы (35+).
         #
-        # Важно: сдвиг выполняется ДО записи значений, потому что
-        # openpyxl при insert_rows не переносит объединённые диапазоны
-        # ниже вставляемой строки; все адреса строк «Итого», раздела 5,
-        # комиссии и подписей (5.0) указаны уже со сдвигом.
-        extra = needed - 2
+        # Важно: openpyxl при insert_rows НЕ переносит объединённые
+        # диапазоны, расположенные ниже вставляемой строки. Поэтому
+        # сначала мы запоминаем все слияния строк 35+, снимаем их,
+        # выполняем сдвиг, затем восстанавливаем слияния со сдвигом
+        # (версия 1.7.3). Без этого шага строка «Итого» и нижние
+        # разделы теряли структуру ячеек — форма «сбивалась» при
+        # количестве позиций больше двух.
+        saved_merges = [(rng.min_row, rng.min_col, rng.max_row, rng.max_col)
+                        for rng in list(ws23.merged_cells.ranges)
+                        if rng.min_row >= 35]
+        for rng in list(ws23.merged_cells.ranges):
+            if rng.min_row >= 35:
+                ws23.unmerge_cells(str(rng))
         ws23.insert_rows(35, extra)
+        for (r1, c1, r2, c2) in saved_merges:
+            try:
+                ws23.merge_cells(start_row=r1 + extra, start_column=c1,
+                                 end_row=r2 + extra, end_column=c2)
+            except Exception:
+                pass
+        # Новые строки: границы, слияния и форматирование — как у строк-
+        # образцов 33/34 (первая дополнительная строка копирует 33,
+        # вторая — 34 и т.д.)
         for k in range(extra):
-            _clone_row_borders(ws23, 33 if k % 2 == 0 else 34, 35 + k)
-    shift = lambda r: r + max(0, needed - 2)  # смещение строк 35+ после вставки
+            src = 33 if k % 2 == 0 else 34
+            dst = 35 + k
+            _clone_row_borders(ws23, src, dst)
+            _clone_row_merges(ws23, src, dst)
+            _clone_row_format(ws23, src, dst)
+    shift = lambda r: r + extra  # смещение строк 35+ после вставки
     total_blocks = needed // 2
     for b in range(total_blocks):
         chunk = rows[b * 2:b * 2 + 2]
@@ -410,14 +468,25 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
             for i, poz in enumerate(chunk):
                 r = 35 + (b - 1) * 2 + i
                 _fill_extra_poz(ws23, r, poz)
-    itog_row = 35 + max(0, needed - 2)  # строка «Итого» после вставки
-    # Итого с НДС (EF/DD строки «Итого»)
+    itog_row = 35 + extra  # строка «Итого» после вставки
+    # Итого с НДС: суммируем стоимость с НДС всех заполненных позиций
     itog = 0.0
-    for r in [33, 34] + list(range(35, itog_row)):
-        v = ws23[_anchor(ws23, 'DD%d' % r)].value
-        if isinstance(v, (int, float)):
-            itog += v
-    _money(ws23, 'EF%d' % itog_row, itog)
+    for poz in rows:
+        kolichestvo = float(poz.get('kolichestvo') or 0)
+        cena = float(poz.get('cena') or 0)
+        bez = round(kolichestvo * cena, 2)
+        itog += round(bez + round(bez * nds_to_value(poz.get('stavka_nds_text')), 2), 2)
+    itog = round(itog, 2)
+    # Значение «Итого» пишется в ячейку столбца 13 («стоимость товаров
+    # (работ, услуг), с НДС») — DD, как в примере формы (ячейка DD35 в
+    # шаблоне); ранее ошибочно писалось в EF (столбец 16) и попадало в
+    # таблицу раздела 5 — из-за этого форма выглядела сбившейся.
+    _money(ws23, 'DD%d' % itog_row, itog)
+    # Формат итогового значения — как в образце строки «Итого»
+    _cell = ws23[_anchor(ws23, 'DD%d' % itog_row)]
+    tmpl_fmt = ws23[_anchor(ws23, 'DD%d' % (itog_row - 1))].number_format
+    if tmpl_fmt and tmpl_fmt != 'General':
+        _cell.number_format = tmpl_fmt
 
     # Приложение: документ об отгрузке — в Z47 выводим составную строку
     # «Вид документа об отгрузке № <номер> от <дата>» (лист стр.2_3).
@@ -598,10 +667,8 @@ def _fill_section4_chunk(ws, chunk, first_row, catalogs):
         r = first_row + i
         for col in list(cols.keys()) + ['CC', 'CT', 'DD']:
             cell = ws[_anchor(ws, '%s%d' % (col, r))]
-            if col in ('CC', 'DD'):
-                cell.value = '=IF(BL%d=0,BT%d,BL%d*BT%d)' % (r, r, r, r) if r == 34 else None
-            elif col == 'CT':
-                cell.value = '=IF(CL%d="","",CC%d*CL%d)' % (r, r, r) if r == 34 else None
-            else:
-                if r != 33:
-                    cell.value = None
+            # Пустые строки раздела 4 оставляем полностью пустыми:
+            # остаточные формулы шаблона («=IF(BL34...)») в ячейке DD
+            # конфликтуют с итоговой суммой и визуально «сбивают»
+            # таблицу при количестве позиций меньше двух (версия 1.7.3).
+            cell.value = None
