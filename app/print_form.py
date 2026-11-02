@@ -189,10 +189,12 @@ def _fix_str23_table_lines(ws, itog_row=35):
         return b.left.style or b.right.style or b.top.style or b.bottom.style
 
     for r in range(29, itog_row + 1):
-        row_cells = [c for c in ws[r] if c.column <= _TABLE4_MAX_COL]
-        last = max(row_cells, key=lambda c: c.column) if row_cells else None
-        if last is None:
-            continue
+        # правая граница таблицы раздела 4 — у последней ячейки строки;
+        # в объединённых диапазонах Excel рисует рамку по периметру
+        # слияния, поэтому стиль ставится якорю (EX), а не «сырой»
+        # ячейке FE внутри слияния EX:FE (иначе линия не отображалась)
+        coord = _anchor(ws, 'FE%d' % r)
+        last = ws[coord]
         b = last.border
         need = 'medium' if r == itog_row else (_style_of(b) or 'thin')
         if need and b.right.style != need:
@@ -228,12 +230,16 @@ def _clone_row_borders(ws, src_row, dst_row):
 
     Используется при добавлении дополнительных позиций (ниже строк
     33—34 шаблона), чтобы новые строки таблиц имели те же линии,
-    что и строки-образцы.
+    что и строки-образцы. Ячейки внутри слияний новой строки не
+    трогаются: рамка слияния рисуется по его периметру и берётся от
+    якоря, а «сырой» ячейке внутри слияния стиль не нужен.
     """
     from copy import copy as _copy
     for col in range(_TABLE4_MIN_COL, _TABLE4_MAX_COL + 1):
         s = ws.cell(row=src_row, column=col)
         d = ws.cell(row=dst_row, column=col)
+        if d.__class__.__name__ == 'MergedCell':
+            continue
         d.border = _copy(s.border)
 
 
@@ -258,24 +264,60 @@ def _clone_row_merges(ws, src_row, dst_row):
 
 def _clone_row_format(ws, src_row, dst_row):
     """Копирует форматирование (шрифт, выравнивание, числовой формат,
-    заливку) ячеек строки-образца в новую строку раздела 4."""
+    заливку) ячеек строки-образца в новую строку раздела 4.
+
+    Версия 1.7.4: копируются также стили «пустых» ячеек — для колонок,
+    у которых в строке нет отдельного элемента <c>, берётся стиль
+    колонки из cols (col.style). Иначе дополнительные строки получали
+    ячейки без стиля вообще и правая граница таблицы (колонка FE) в них
+    не отрисовывалась — форма визуально «сбивалась».
+    """
     from copy import copy as _copy
-    anchor_cols = {}
-    for rng in ws.merged_cells.ranges:
-        if rng.min_row == src_row and rng.max_row == src_row:
-            anchor_cols.setdefault(rng.min_col, rng.max_col)
-    for col in range(_TABLE4_MIN_COL, _TABLE4_MAX_COL + 1):
+    # стили колонок шаблона — резервный источник оформления для колонок,
+    # у которых в строке-образце нет собственных ячеек
+    col_style = {}
+    for letter, dim in ws.column_dimensions.items():
+        st = getattr(dim, 'style', None)
+        if st is not None:
+            try:
+                col_style[column_index_from_string(letter)] = st
+            except Exception:
+                pass
+
+    def _src_style(col):
         s = ws.cell(row=src_row, column=col)
+        if s.has_style:
+            return s
+        fallback = col_style.get(col)
+        if fallback is not None:
+            probe = ws.cell(row=src_row, column=col)
+            probe._style = _copy(fallback)
+            return probe
+        return None
+
+    for col in range(_TABLE4_MIN_COL, _TABLE4_MAX_COL + 1):
+        s = _src_style(col)
+        if s is None:
+            continue
         d = ws.cell(row=dst_row, column=col)
         if d.__class__.__name__ == 'MergedCell':
             continue
-        if s.__class__.__name__ == 'MergedCell':
-            continue
         d.font = _copy(s.font)
+        d.border = _copy(s.border)
         d.alignment = _copy(s.alignment)
         d.fill = _copy(s.fill)
         d.protection = _copy(s.protection)
         d.number_format = s.number_format
+
+
+def _clone_row_height(ws, src_row, dst_row):
+    """Задаёт новой строке раздела 4 высоту строки-образца.
+
+    Без этого вставленные позиции наследовали высоты нижних строк
+    шаблона (4.5–10.5 пункта) и таблица раздела 4 «съезжалась»."""
+    h = ws.row_dimensions[src_row].height if src_row in ws.row_dimensions else None
+    if h:
+        ws.row_dimensions[dst_row].height = h
 
 
 def _split_date(dt):
@@ -449,15 +491,17 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
                                  end_row=r2 + extra, end_column=c2)
             except Exception:
                 pass
-        # Новые строки: границы, слияния и форматирование — как у строк-
-        # образцов 33/34 (первая дополнительная строка копирует 33,
-        # вторая — 34 и т.д.)
+        # Новые строки: границы, слияния, форматирование И высота — как у
+        # строк-образцов 33/34 (первая дополнительная строка копирует 33,
+        # вторая — 34 и т.д.). Порядок важен: сначала создаём слияния,
+        # затем копируем оформление в оставшиеся «обычные» ячейки.
         for k in range(extra):
             src = 33 if k % 2 == 0 else 34
             dst = 35 + k
-            _clone_row_borders(ws23, src, dst)
+            _clone_row_height(ws23, src, dst)
             _clone_row_merges(ws23, src, dst)
             _clone_row_format(ws23, src, dst)
+            _clone_row_borders(ws23, src, dst)
     shift = lambda r: r + extra  # смещение строк 35+ после вставки
     total_blocks = needed // 2
     for b in range(total_blocks):
@@ -477,16 +521,24 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
         bez = round(kolichestvo * cena, 2)
         itog += round(bez + round(bez * nds_to_value(poz.get('stavka_nds_text')), 2), 2)
     itog = round(itog, 2)
-    # Значение «Итого» пишется в ячейку столбца 13 («стоимость товаров
-    # (работ, услуг), с НДС») — DD, как в примере формы (ячейка DD35 в
-    # шаблоне); ранее ошибочно писалось в EF (столбец 16) и попадало в
-    # таблицу раздела 5 — из-за этого форма выглядела сбившейся.
-    _money(ws23, 'DD%d' % itog_row, itog)
-    # Формат итогового значения — как в образце строки «Итого»
-    _cell = ws23[_anchor(ws23, 'DD%d' % itog_row)]
-    tmpl_fmt = ws23[_anchor(ws23, 'DD%d' % (itog_row - 1))].number_format
-    if tmpl_fmt and tmpl_fmt != 'General':
-        _cell.number_format = tmpl_fmt
+    # Итоговое значение пишется в строку «Итого» шаблона (ячейка DD35 до
+    # сдвига): там уже стоят метка «Итого», объединение DD:DM и финансовый
+    # числовой формат — форма итогового ряда остаётся точно как в примере.
+    # Ранее в эту ячейку записывалось значение через _money() с форматом
+    # «#,##0.00», который затирал формат шаблона; теперь формат не трогаем
+    # (версия 1.7.4).
+    itog_anchor = 'DD%d' % itog_row
+    cell_itog = ws23[_anchor(ws23, itog_anchor)]
+    if cell_itog.__class__.__name__ == 'MergedCell':  # страховка на случай сдвигов слияний
+        cell_itog = _set(ws23, itog_anchor, itog)
+    else:
+        cell_itog.value = itog
+    if (cell_itog.number_format or '').lower() == 'general':
+        # если формат строки «Итого» по какой-то причине потерян — берём
+        # его из последней заполненной позиции таблицы
+        tmpl_fmt = ws23[_anchor(ws23, 'DD%d' % (itog_row - 1))].number_format
+        if tmpl_fmt and tmpl_fmt != 'General':
+            cell_itog.number_format = tmpl_fmt
 
     # Приложение: документ об отгрузке — в Z47 выводим составную строку
     # «Вид документа об отгрузке № <номер> от <дата>» (лист стр.2_3).
