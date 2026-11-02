@@ -578,6 +578,21 @@ def _priemka_next_nomer(d, data_doc=None):
     return str(max(nums) + 1) if nums else '1'
 
 
+def _cena_2z(x):
+    """Цена хранится всегда с копейками: ровно 2 знака после запятой,
+    целая часть — не более 5 цифр (всего в поле может быть 7 знаков)."""
+    try:
+        x = float(x or 0)
+    except (TypeError, ValueError):
+        return ''
+    sign = '-' if x < 0 else ''
+    ax = abs(x)
+    if ax >= 1e5:                          # лишние цифры целой части отбрасываются
+        ax = float(str(int(ax))[:5])
+    r = min(round(ax, 2), 99999.99)         # округление не должно давать 6 цифр
+    return '%s%.2f' % (sign, r)
+
+
 @app.route('/dokument/priemka/next_nomer')
 def priemka_next_nomer():
     """Подсказка автонумерации для формы (обновляется при смене даты)."""
@@ -637,19 +652,26 @@ def priemka_save():
     nom_by_kod = {str(n.get('kod_tovara', '')): n for n in nom.values()}
     for i, poz in enumerate(payload.get('pozicii', [])):
         poz['nom'] = i + 1
-        # поля «кол-во» и «цена» — не более 7 знаков (цифр)
+        # поля «кол-во» и «цена» — числовые; «цена» хранится всегда с копейками
+        # (ровно 2 знака после запятой), «кол-во» — не более 7 знаков (цифр)
         for knum in ('kolichestvo', 'cena'):
-            val = str(poz.get(knum, '') or '').strip().replace(',', '.')
-            if re.fullmatch(r'-?\d+(\.\d+)?', val):
-                digits = val.lstrip('-').replace('.', '')
-                if len(digits) > 7:
-                    intp, _, frac = val.partition('.')
-                    sign = '-' if intp.startswith('-') else ''
-                    intp_d = intp.lstrip('-')
-                    intp_d = intp_d[:7]                 # целая часть — до 7 цифр
-                    frac = frac[:max(0, 7 - len(intp_d))]  # всего цифр <= 7
-                    val = sign + intp_d + ('.' + frac if frac else '')
-                    poz[knum] = val
+            raw = str(poz.get(knum, '') or '').strip().replace(',', '.')
+            if not re.fullmatch(r'-?\d+(\.\d+)?', raw):
+                continue
+            if knum == 'cena':
+                # цена сохраняется всегда с копейками (2 знака после запятой)
+                poz[knum] = _cena_2z(float(raw or 0))
+                continue
+            val = raw
+            digits = val.lstrip('-').replace('.', '')
+            if len(digits) > 7:
+                intp, _, frac = val.partition('.')
+                sign = '-' if intp.startswith('-') else ''
+                intp_d = intp.lstrip('-')
+                intp_d = intp_d[:7]                 # целая часть — до 7 цифр
+                frac = frac[:max(0, 7 - len(intp_d))]  # всего цифр <= 7
+                val = sign + intp_d + ('.' + frac if frac else '')
+                poz[knum] = val
         n = nom.get((str(poz.get('kod_tovara', '')), str(poz.get('naimovanie', '')))) \
             or nom_by_kod.get(str(poz.get('kod_tovara', '')))
         if n:
