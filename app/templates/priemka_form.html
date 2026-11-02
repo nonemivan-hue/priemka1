@@ -318,10 +318,24 @@ function nomKey(n){return n.kod_tovara+' | '+n.naimovanie;}
 function findNom(key){return NOM.find(n=>nomKey(n)===key);}
 
 // форматирование денег: всегда два знака после запятой (разделитель — запятая),
-// чтобы в полях «Сумма без НДС», «Сумма НДС», «Сумма с НДС» и «Итого с НДС»
-// дробная часть была видна целиком
+// чтобы в полях «Цена», «Сумма без НДС», «Сумма НДС», «Сумма с НДС» и «Итого с НДС»
+// копейки были видны целиком
 function num(v){const x=parseFloat(String(v==null?'':v).replace(',','.'));return isNaN(x)?0:x;}
 function money(v){return (Math.round(num(v)*100)/100).toFixed(2).replace('.', ',');}
+// поле «Кол-во»: показываем столько знаков, сколько ввёл пользователь (без копеек)
+function qtyStr(v){
+  const s=String(v==null?'':v).trim();
+  if(s==='')return '';
+  const x=num(s);
+  if(!isFinite(x))return '';
+  return String(Math.round(x*1e6)/1e6);
+}
+// поле «Цена»: всегда с копейками — ровно два знака после запятой
+function priceStr(v){
+  const s=String(v==null?'':v).trim();
+  if(s==='')return '';
+  return money(v);
+}
 
 // ---- Раздел 4: ширины колонок можно двигать мышью ----
 // Пользовательские ширины сохраняются в localStorage и применяются при
@@ -355,10 +369,10 @@ function renderPoz(){
       '<td style="background:#eef2ff">'+esc(p.naimovanie||'')+'</td>'+
       '<td style="background:#eef2ff">'+esc(p.strana_kod||'')+' '+esc(p.strana_name||'')+'</td>'+
       '<td style="background:#eef2ff">'+esc(p.ed_izm||'')+' <span class="muted">('+esc(p.oei_kod||'')+')</span></td>'+
-      '<td><input type="text" class="cell-in" inputmode="decimal" style="background:#fff59a" value="'+esc(p.kolichestvo||'')+'"'+
+      '<td><input type="text" class="cell-in" inputmode="decimal" style="background:#fff59a" value="'+esc(qtyStr(p.kolichestvo))+'"'+
         ' oninput="limitNum(this)" onchange="onCellNum('+i+',this,\'kolichestvo\')" title="Количество: до 7 цифр, разделитель — запятая или точка" placeholder="✏️"></td>'+
-      '<td><input type="text" class="cell-in" inputmode="decimal" style="background:#fff59a" value="'+esc(p.cena||'')+'"'+
-        ' oninput="limitNum(this)" onchange="onCellNum('+i+',this,\'cena\')" title="Цена: до 7 цифр, после запятой — копейки" placeholder="✏️"></td>'+
+      '<td><input type="text" class="cell-in" inputmode="decimal" style="background:#fff59a" value="'+esc(priceStr(p.cena))+'"'+
+        ' oninput="limitNum(this)" onchange="onCellNum('+i+',this,\'cena\')" title="Цена: до 5 цифр, после запятой — обязательно копейки (2 знака)" placeholder="✏️"></td>'+
       '<td class="num">'+money(bez)+'</td>'+
       '<td style="background:#eef2ff">'+esc(p.stavka_nds||'')+'</td>'+
       '<td class="num">'+money(nds)+'</td>'+
@@ -438,13 +452,26 @@ function pickNom(i,key){
 function limitNum(inp){
   const raw=inp.value;
   if(raw==='')return;
+  const isPrice=inp.title&&inp.title.indexOf('Цена')===0;
   let s=raw.replace(',', '.');
   const m=/^-?(\d*)(\.\d*)?/.exec(s);      // отбрасываем всё, что не число
   if(!m){inp.value='';return;}
-  let intp=(m[1]||'').slice(0,7);
+  // цена: целая часть до 5 цифр + ровно 2 знака (копейки);
+  // количество: до 7 цифр всего, дробная часть как введена
+  let maxInt=isPrice?5:7;
+  let maxFrac=isPrice?2:7;
+  let intp=(m[1]||'').slice(0,maxInt);
   let fr=(m[2]||'').slice(1);
-  fr=fr.slice(0,Math.max(0,7-intp.length));
-  inp.value=((raw.indexOf(',')>=0&&fr)?intp+','+fr:intp+(fr?'.'+fr:''));
+  if(isPrice){
+    fr=fr.slice(0,maxFrac);                 // лишние цифры копеек отбрасываются
+    if(intp==='')intp='0';                  // «,5» -> «0,50»
+    if(fr.length===1)fr+='0';               // «12,3» -> «12,30»
+    while(fr.length<2)fr+='0';              // «12» -> «12,00»
+    inp.value=intp+','+fr;
+  }else{
+    fr=fr.slice(0,Math.max(0,7-intp.length));
+    inp.value=((raw.indexOf(',')>=0&&fr)?intp+','+fr:intp+(fr?'.'+fr:''));
+  }
   if(raw.indexOf('-')===0&&intp)inp.value='-'+inp.value;
 }
 function onCellNum(i,inp,key){

@@ -153,6 +153,18 @@ def _clear_cells(ws, coords):
         ws[_anchor(ws, coord)].value = None
 
 
+# Числовой формат «с копейками»: всегда два знака после запятой (1.7.x),
+# чтобы цена и суммы в печатной форме не выглядели целыми числами.
+MONEY_FMT = '#,##0.00'
+
+
+def _money(ws, coord, value):
+    """Записывает денежное значение с обязательными двумя знаками после запятой."""
+    cell = _set(ws, coord, round(float(value or 0), 2))
+    cell.number_format = MONEY_FMT
+    return cell
+
+
 # Столбцы с границами ячеек в таблице раздела 4 листа «стр.2_3»
 # (позиции номенклатуры). Нужны для отрисовки сетки дополнительно
 # вставленных строк (версия 1.7.2).
@@ -405,7 +417,7 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
         v = ws23[_anchor(ws23, 'DD%d' % r)].value
         if isinstance(v, (int, float)):
             itog += v
-    _set(ws23, 'EF%d' % itog_row, itog, highlight=False)
+    _money(ws23, 'EF%d' % itog_row, itog)
 
     # Приложение: документ об отгрузке — в Z47 выводим составную строку
     # «Вид документа об отгрузке № <номер> от <дата>» (лист стр.2_3).
@@ -528,15 +540,22 @@ def _fill_extra_poz(ws, r, poz):
         v = poz.get(key, '')
         if key == 'nom' and not isinstance(v, int):
             continue
-        _set(ws, '%s%d' % (col, r), v)
+        cell = _set(ws, '%s%d' % (col, r), v)
+        if key in ('kolichestvo', 'cena'):
+            # «цена» и «кол-во» выводим как число с двумя знаками после запятой
+            try:
+                cell.value = round(float(str(v).replace(',', '.')), 2)
+                cell.number_format = MONEY_FMT
+            except (TypeError, ValueError):
+                pass
     kolichestvo = float(poz.get('kolichestvo') or 0)
     cena = float(poz.get('cena') or 0)
-    bez = kolichestvo * cena
+    bez = round(kolichestvo * cena, 2)
     koef = nds_to_value(poz.get('stavka_nds_text'))
     summa_nds = round(bez * koef, 2)
-    _set(ws, 'CC%d' % r, bez)
-    _set(ws, 'CT%d' % r, summa_nds)
-    _set(ws, 'DD%d' % r, round(bez + summa_nds, 2))
+    _money(ws, 'CC%d' % r, bez)
+    _money(ws, 'CT%d' % r, summa_nds)
+    _money(ws, 'DD%d' % r, round(bez + summa_nds, 2))
 
 
 def _fill_section4_chunk(ws, chunk, first_row, catalogs):
@@ -557,15 +576,23 @@ def _fill_section4_chunk(ws, chunk, first_row, catalogs):
         cc = column_index_from_string('CC')
         ct = column_index_from_string('CT')
         dd = column_index_from_string('DD')
+        # «цена» и «кол-во» — числа с двумя знаками после запятой (копейки видны)
+        for col in ('BL', 'BT'):
+            c = ws[_anchor(ws, '%s%d' % (col, r))]
+            try:
+                c.value = round(float(str(c.value).replace(',', '.')), 2)
+                c.number_format = MONEY_FMT
+            except (TypeError, ValueError):
+                pass
         kolichestvo = float(poz.get('kolichestvo') or 0)
         cena = float(poz.get('cena') or 0)
-        bez_nds = kolichestvo * cena
+        bez_nds = round(kolichestvo * cena, 2)
         koef = nds_to_value(poz.get('stavka_nds_text'))
         summa_nds = round(bez_nds * koef, 2)
         with_nds = round(bez_nds + summa_nds, 2)
-        _set(ws, 'CC%d' % r, bez_nds)
-        _set(ws, 'CT%d' % r, summa_nds)
-        _set(ws, 'DD%d' % r, with_nds)
+        _money(ws, 'CC%d' % r, bez_nds)
+        _money(ws, 'CT%d' % r, summa_nds)
+        _money(ws, 'DD%d' % r, with_nds)
     # очищаем неиспользованные строки блока
     for i in range(len(chunk), 2):
         r = first_row + i
