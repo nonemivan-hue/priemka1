@@ -189,10 +189,12 @@ def _fix_str23_table_lines(ws, itog_row=35):
         return b.left.style or b.right.style or b.top.style or b.bottom.style
 
     for r in range(29, itog_row + 1):
-        row_cells = [c for c in ws[r] if c.column <= _TABLE4_MAX_COL]
-        last = max(row_cells, key=lambda c: c.column) if row_cells else None
-        if last is None:
-            continue
+        # правая граница таблицы раздела 4 — у последней ячейки строки;
+        # в объединённых диапазонах Excel рисует рамку по периметру
+        # слияния, поэтому стиль ставится якорю (EX), а не «сырой»
+        # ячейке FE внутри слияния EX:FE (иначе линия не отображалась)
+        coord = _anchor(ws, 'FE%d' % r)
+        last = ws[coord]
         b = last.border
         need = 'medium' if r == itog_row else (_style_of(b) or 'thin')
         if need and b.right.style != need:
@@ -228,13 +230,94 @@ def _clone_row_borders(ws, src_row, dst_row):
 
     Используется при добавлении дополнительных позиций (ниже строк
     33—34 шаблона), чтобы новые строки таблиц имели те же линии,
-    что и строки-образцы.
+    что и строки-образцы. Ячейки внутри слияний новой строки не
+    трогаются: рамка слияния рисуется по его периметру и берётся от
+    якоря, а «сырой» ячейке внутри слияния стиль не нужен.
     """
     from copy import copy as _copy
     for col in range(_TABLE4_MIN_COL, _TABLE4_MAX_COL + 1):
         s = ws.cell(row=src_row, column=col)
         d = ws.cell(row=dst_row, column=col)
+        if d.__class__.__name__ == 'MergedCell':
+            continue
         d.border = _copy(s.border)
+
+
+def _clone_row_merges(ws, src_row, dst_row):
+    """Воспроизводит объединённые диапазоны строки-образца в новой строке.
+
+    При вставке строк методом сдвига openpyxl не переносит слияния, а
+    новые строки их вообще не имеют — из-за этого дополнительные позиции
+    раздела 4 «расползались» по колонкам (форма сбивалась). Копируем
+    структуру слияний строки 33/34 в новую строку (версия 1.7.3).
+    """
+    ranges = [(rng.min_col, rng.max_col) for rng in ws.merged_cells.ranges
+              if rng.min_row == src_row and rng.max_row == src_row]
+    for min_col, max_col in ranges:
+        if max_col > min_col:
+            try:
+                ws.merge_cells(start_row=dst_row, start_column=min_col,
+                               end_row=dst_row, end_column=max_col)
+            except Exception:
+                pass
+
+
+def _clone_row_format(ws, src_row, dst_row):
+    """Копирует форматирование (шрифт, выравнивание, числовой формат,
+    заливку) ячеек строки-образца в новую строку раздела 4.
+
+    Версия 1.7.4: копируются также стили «пустых» ячеек — для колонок,
+    у которых в строке нет отдельного элемента <c>, берётся стиль
+    колонки из cols (col.style). Иначе дополнительные строки получали
+    ячейки без стиля вообще и правая граница таблицы (колонка FE) в них
+    не отрисовывалась — форма визуально «сбивалась».
+    """
+    from copy import copy as _copy
+    # стили колонок шаблона — резервный источник оформления для колонок,
+    # у которых в строке-образце нет собственных ячеек
+    col_style = {}
+    for letter, dim in ws.column_dimensions.items():
+        st = getattr(dim, 'style', None)
+        if st is not None:
+            try:
+                col_style[column_index_from_string(letter)] = st
+            except Exception:
+                pass
+
+    def _src_style(col):
+        s = ws.cell(row=src_row, column=col)
+        if s.has_style:
+            return s
+        fallback = col_style.get(col)
+        if fallback is not None:
+            probe = ws.cell(row=src_row, column=col)
+            probe._style = _copy(fallback)
+            return probe
+        return None
+
+    for col in range(_TABLE4_MIN_COL, _TABLE4_MAX_COL + 1):
+        s = _src_style(col)
+        if s is None:
+            continue
+        d = ws.cell(row=dst_row, column=col)
+        if d.__class__.__name__ == 'MergedCell':
+            continue
+        d.font = _copy(s.font)
+        d.border = _copy(s.border)
+        d.alignment = _copy(s.alignment)
+        d.fill = _copy(s.fill)
+        d.protection = _copy(s.protection)
+        d.number_format = s.number_format
+
+
+def _clone_row_height(ws, src_row, dst_row):
+    """Задаёт новой строке раздела 4 высоту строки-образца.
+
+    Без этого вставленные позиции наследовали высоты нижних строк
+    шаблона (4.5–10.5 пункта) и таблица раздела 4 «съезжалась»."""
+    h = ws.row_dimensions[src_row].height if src_row in ws.row_dimensions else None
+    if h:
+        ws.row_dimensions[dst_row].height = h
 
 
 def _split_date(dt):
@@ -379,28 +462,47 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
     _set(ws23, 'BV23', uch.get('rukovoditel', ''))
 
     # Раздел 4: позиции номенклатуры — добавляем строки копированием шаблона (33-34)
-    template_rows = [33, 34]
     rows = doc.get('pozicii', []) or []
-    import copy as _copy_mod
-    from openpyxl.utils import get_column_letter as _gcl
     n = len(rows)
     needed = max(2, ((n + 1) // 2) * 2)  # чётное число строк блоками по 2
-    if needed > 2:
+    extra = needed - 2
+    if extra > 0:
         # ВНИМАНИЕ: дополнительные строки вставляем МЕТОДОМ СДВИВА
         # (insert_rows), иначе позиции перезаписывали бы строку «Итого»
-        # и нижние разделы (35+). Границы новых строк копируются со
-        # строк-образцов 33/34 — таблицы сохраняют все нарисованные
-        # линии (версия 1.7.2).
+        # и нижние разделы (35+).
         #
-        # Важно: сдвиг выполняется ДО записи значений, потому что
-        # openpyxl при insert_rows не переносит объединённые диапазоны
-        # ниже вставляемой строки; все адреса строк «Итого», раздела 5,
-        # комиссии и подписей (5.0) указаны уже со сдвигом.
-        extra = needed - 2
+        # Важно: openpyxl при insert_rows НЕ переносит объединённые
+        # диапазоны, расположенные ниже вставляемой строки. Поэтому
+        # сначала мы запоминаем все слияния строк 35+, снимаем их,
+        # выполняем сдвиг, затем восстанавливаем слияния со сдвигом
+        # (версия 1.7.3). Без этого шага строка «Итого» и нижние
+        # разделы теряли структуру ячеек — форма «сбивалась» при
+        # количестве позиций больше двух.
+        saved_merges = [(rng.min_row, rng.min_col, rng.max_row, rng.max_col)
+                        for rng in list(ws23.merged_cells.ranges)
+                        if rng.min_row >= 35]
+        for rng in list(ws23.merged_cells.ranges):
+            if rng.min_row >= 35:
+                ws23.unmerge_cells(str(rng))
         ws23.insert_rows(35, extra)
+        for (r1, c1, r2, c2) in saved_merges:
+            try:
+                ws23.merge_cells(start_row=r1 + extra, start_column=c1,
+                                 end_row=r2 + extra, end_column=c2)
+            except Exception:
+                pass
+        # Новые строки: границы, слияния, форматирование И высота — как у
+        # строк-образцов 33/34 (первая дополнительная строка копирует 33,
+        # вторая — 34 и т.д.). Порядок важен: сначала создаём слияния,
+        # затем копируем оформление в оставшиеся «обычные» ячейки.
         for k in range(extra):
-            _clone_row_borders(ws23, 33 if k % 2 == 0 else 34, 35 + k)
-    shift = lambda r: r + max(0, needed - 2)  # смещение строк 35+ после вставки
+            src = 33 if k % 2 == 0 else 34
+            dst = 35 + k
+            _clone_row_height(ws23, src, dst)
+            _clone_row_merges(ws23, src, dst)
+            _clone_row_format(ws23, src, dst)
+            _clone_row_borders(ws23, src, dst)
+    shift = lambda r: r + extra  # смещение строк 35+ после вставки
     total_blocks = needed // 2
     for b in range(total_blocks):
         chunk = rows[b * 2:b * 2 + 2]
@@ -410,14 +512,33 @@ def build_priemka_xlsx(priemka, constants, catalogs, out_path):
             for i, poz in enumerate(chunk):
                 r = 35 + (b - 1) * 2 + i
                 _fill_extra_poz(ws23, r, poz)
-    itog_row = 35 + max(0, needed - 2)  # строка «Итого» после вставки
-    # Итого с НДС (EF/DD строки «Итого»)
+    itog_row = 35 + extra  # строка «Итого» после вставки
+    # Итого с НДС: суммируем стоимость с НДС всех заполненных позиций
     itog = 0.0
-    for r in [33, 34] + list(range(35, itog_row)):
-        v = ws23[_anchor(ws23, 'DD%d' % r)].value
-        if isinstance(v, (int, float)):
-            itog += v
-    _money(ws23, 'EF%d' % itog_row, itog)
+    for poz in rows:
+        kolichestvo = float(poz.get('kolichestvo') or 0)
+        cena = float(poz.get('cena') or 0)
+        bez = round(kolichestvo * cena, 2)
+        itog += round(bez + round(bez * nds_to_value(poz.get('stavka_nds_text')), 2), 2)
+    itog = round(itog, 2)
+    # Итоговое значение пишется в строку «Итого» шаблона (ячейка DD35 до
+    # сдвига): там уже стоят метка «Итого», объединение DD:DM и финансовый
+    # числовой формат — форма итогового ряда остаётся точно как в примере.
+    # Ранее в эту ячейку записывалось значение через _money() с форматом
+    # «#,##0.00», который затирал формат шаблона; теперь формат не трогаем
+    # (версия 1.7.4).
+    itog_anchor = 'DD%d' % itog_row
+    cell_itog = ws23[_anchor(ws23, itog_anchor)]
+    if cell_itog.__class__.__name__ == 'MergedCell':  # страховка на случай сдвигов слияний
+        cell_itog = _set(ws23, itog_anchor, itog)
+    else:
+        cell_itog.value = itog
+    if (cell_itog.number_format or '').lower() == 'general':
+        # если формат строки «Итого» по какой-то причине потерян — берём
+        # его из последней заполненной позиции таблицы
+        tmpl_fmt = ws23[_anchor(ws23, 'DD%d' % (itog_row - 1))].number_format
+        if tmpl_fmt and tmpl_fmt != 'General':
+            cell_itog.number_format = tmpl_fmt
 
     # Приложение: документ об отгрузке — в Z47 выводим составную строку
     # «Вид документа об отгрузке № <номер> от <дата>» (лист стр.2_3).
@@ -598,10 +719,8 @@ def _fill_section4_chunk(ws, chunk, first_row, catalogs):
         r = first_row + i
         for col in list(cols.keys()) + ['CC', 'CT', 'DD']:
             cell = ws[_anchor(ws, '%s%d' % (col, r))]
-            if col in ('CC', 'DD'):
-                cell.value = '=IF(BL%d=0,BT%d,BL%d*BT%d)' % (r, r, r, r) if r == 34 else None
-            elif col == 'CT':
-                cell.value = '=IF(CL%d="","",CC%d*CL%d)' % (r, r, r) if r == 34 else None
-            else:
-                if r != 33:
-                    cell.value = None
+            # Пустые строки раздела 4 оставляем полностью пустыми:
+            # остаточные формулы шаблона («=IF(BL34...)») в ячейке DD
+            # конфликтуют с итоговой суммой и визуально «сбивают»
+            # таблицу при количестве позиций меньше двух (версия 1.7.3).
+            cell.value = None
